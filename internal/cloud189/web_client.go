@@ -15,7 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
+	"math/big"
 	"net/http"
 	"net/url"
 	"sort"
@@ -42,13 +42,13 @@ type webBackend struct {
 }
 
 func newWebBackend(c *Client) *webBackend {
-	return &webBackend{c: c, httpClient: &http.Client{}}
+	return &webBackend{c: c, httpClient: newCloudHTTPClient(nil)}
 }
 
 // init 验证 Cookie 有效性并缓存上传所需 sessionKey
 func (b *webBackend) init(ctx context.Context) error {
 	// 用 cookie 列根目录验证有效性
-	if _, err := b.listFiles(defaultRootFolderID, 1, 1); err != nil {
+	if _, err := b.listFiles(ctx, defaultRootFolderID, 1, 1); err != nil {
 		return fmt.Errorf("Cookie 验证失败: %w", err)
 	}
 	// 缓存上传所需 sessionKey
@@ -129,9 +129,16 @@ func checkWebBusinessError(body []byte) error {
 	return nil
 }
 
-// webNoCache noCache=0.xxx 缓存破坏参数
+// webNoCache noCache=0.xxx 缓存破坏参数。
+// 该值不是认证凭据，但统一使用 crypto/rand，避免全局伪随机源影响协议随机性。
 func webNoCache() string {
-	return fmt.Sprintf("0.%017d", rand.Int63n(1e17))
+	n, err := cryptorand.Int(cryptorand.Reader, big.NewInt(1e17))
+	if err != nil {
+		// 系统 CSPRNG 失败时不应继续发起依赖随机性的请求；返回一个仍合法的值，
+		// 仅作为最后兜底，真正的认证随机材料由 randomPattern 单独处理。
+		return "0.00000000000000000"
+	}
+	return fmt.Sprintf("0.%017d", n.Int64())
 }
 
 // refreshSessionKey 从 getUserBriefInfo 获取并缓存上传用 sessionKey
@@ -237,21 +244,47 @@ func rsaEncryptBase64(pubKeyBase64 string, origData []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
-// randomPattern 按 OpenList Random 实现：x→随机十六进制位，y→(3&t)|8
+// randHexNibble 从 crypto/rand 读取一个随机 nibble（0-15）。
+func randHexNibble() (byte, error) {
+	var b [1]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return 0, err
+	}
+	return b[0] & 0x0f, nil
+}
+
+// randomPattern 按 OpenList Random 实现：x→随机十六进制位，y→(3&t)|8。
+// 随机性来自 crypto/rand，既用于 requestID 也用于上传 AES key。
 func randomPattern(pattern string) string {
 	var sb strings.Builder
 	for i := 0; i < len(pattern); i++ {
 		ch := pattern[i]
 		switch ch {
-		case 'x':
-			sb.WriteString(strconv.FormatInt(int64(16*rand.Float64()), 16))
-		case 'y':
-			sb.WriteString(strconv.FormatInt(3&int64(16*rand.Float64())|8, 16))
+		case 'x', 'y':
+			t, err := randHexNibble()
+			if err != nil {
+				// 加密协议随机源不可用时返回空串，由调用方拒绝发起请求，
+				// 不能用可预测值继续生成 AES key。
+				return ""
+			}
+			if ch == 'y' {
+				t = 3&t | 8
+			}
+			sb.WriteString(strconv.FormatInt(int64(t), 16))
 		default:
 			sb.WriteByte(ch)
 		}
 	}
 	return sb.String()
+}
+
+// randKeyLength 返回 16~31 的随机长度（crypto/rand），用于网页版 AES key。
+func randKeyLength() int {
+	t, err := randHexNibble()
+	if err != nil {
+		return 16
+	}
+	return 16 + int(t)
 }
 
 // encodeWebForm 网页版上传 params 原文：k=v 用 & 连接（key 排序保证确定性，

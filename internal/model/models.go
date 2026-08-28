@@ -19,6 +19,7 @@ type Settings struct {
 	Password          string `json:"password"`       // 电信云盘密码
 	Cookie            string `json:"cookie"`         // 电信云盘网页版 Cookie（设置了则优先使用）
 	AdminPasswordHash string `json:"-"`              // 管理员密码 bcrypt 哈希（不对外暴露）
+	AdminTokenVersion int64  `json:"-"`              // 管理员会话版本（改密/登出时递增）
 	RefreshToken      string `json:"refresh_token"`  // 登录成功后由后端回填
 	AccessToken       string `json:"access_token"`   // Access Token（与 Refresh Token 配合使用）
 	RootFolderID      string `json:"root_folder_id"` // 根文件夹ID，空为根目录

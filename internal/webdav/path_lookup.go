@@ -129,7 +129,7 @@ func (fs *Cloud189FS) listAllInDir(ctx context.Context, dirID string) ([]*model.
 	var out []*model.FileInfo
 	page := 1
 	for {
-		files, err := fs.client.ListFiles(dirID, page, listPageSize)
+		files, err := fs.client.ListFilesContext(ctx, dirID, page, listPageSize)
 		if err != nil {
 			return nil, err
 		}

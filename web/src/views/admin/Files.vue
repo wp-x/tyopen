@@ -296,7 +296,7 @@
               <label class="brutal-label-tag">自定义链接_LINK</label>
               <div class="input-group-brutal">
                  <span class="prefix">/s/</span>
-                 <input v-model="shareForm.share_code" class="brutal-input-reset" placeholder="留空自动生成 (Auto Gen)">
+                 <input v-model="shareForm.share_code" class="brutal-input-reset" maxlength="64" placeholder="留空自动生成 (Auto Gen)">
               </div>
            </div>
 
@@ -1159,6 +1159,11 @@ function openExternal(url: string) {
 }
 
 async function createShare() {
+  const shareCode = shareForm.value.share_code.trim()
+  if (shareCode && !/^[A-Za-z0-9_-]{1,64}$/.test(shareCode)) {
+    ElMessage.error('分享码只能包含字母、数字、下划线和短横线，最多 64 个字符')
+    return
+  }
   creating.value = true
   try {
     const data: any = {
@@ -1167,8 +1172,8 @@ async function createShare() {
       target_name: shareForm.value.target_name,
       target_path: shareForm.value.target_path
     }
-    if (shareForm.value.share_code) {
-      data.share_code = shareForm.value.share_code
+    if (shareCode) {
+      data.share_code = shareCode
     }
     if (shareForm.value.password) {
       data.password = shareForm.value.password

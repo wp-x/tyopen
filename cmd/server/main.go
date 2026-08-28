@@ -12,18 +12,12 @@ import (
 func main() {
 	// 加载配置
 	cfg := config.DefaultConfig()
-	if len(cfg.AdminPassword) < 12 {
-		log.Fatal("TYOPEN_ADMIN_PASSWORD 未配置或长度不足 12 位")
-	}
 	if len(cfg.JWTSecret) < 32 {
 		log.Fatal("TYOPEN_JWT_SECRET 未配置或长度不足 32 位")
 	}
 	logStartup(cfg)
 
-	// 设置JWT密钥
-	middleware.JWTSecret = cfg.JWTSecret
-
-	// 初始化数据库
+	// 初始化数据库，管理员密码是否必需取决于数据库中是否已有 bcrypt 哈希。
 	db, err := repository.NewDatabase(cfg.DatabasePath())
 	if err != nil {
 		log.Fatalf("初始化数据库失败: %v", err)
@@ -31,14 +25,26 @@ func main() {
 	defer db.Close()
 
 	repos := initRepositories(db)
+	settings, err := repos.settings.Get()
+	if err != nil {
+		log.Fatalf("读取系统设置失败: %v", err)
+	}
+	if settings.AdminPasswordHash == "" && len(cfg.AdminPassword) < 12 {
+		log.Fatal("TYOPEN_ADMIN_PASSWORD 未配置或长度不足 12 位（数据库中尚未设置管理员密码）")
+	}
+
+	// 设置 JWT 密钥与持久化管理员会话版本。
+	middleware.JWTSecret = cfg.JWTSecret
+	middleware.SetAdminTokenVersion(settings.AdminTokenVersion)
+
 	panClient := initCloud189Client(repos.settings)
-	h := initHandler(repos, panClient, cfg.AdminPassword, cfg.JWTSecret)
+	h := initHandler(repos, panClient, cfg)
 	monitorService := initMonitorService(repos, panClient, h)
 	maybeStartMonitor(repos.settings, monitorService)
 
 	r := setupRouter(routeOptions{
 		handler: h,
-	})
+	}, cfg)
 	davHandler := newWebDAVHandler(panClient, repos.settings, h.VerifyAdminPassword)
 	startHTTPServer(r, davHandler, cfg.Port)
 }

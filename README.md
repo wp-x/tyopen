@@ -138,13 +138,14 @@ services:
 
 | 变量 | 说明 | 默认 |
 | --- | --- | --- |
-| `TYOPEN_ADMIN_PASSWORD` | 登录密码（至少 12 位） | 必填 |
+| `TYOPEN_ADMIN_PASSWORD` | 首次启动/数据库尚无管理员哈希时的登录密码（至少 12 位）；已有后台 bcrypt 密码时可留空 | 首次启动必填 |
 | `TYOPEN_JWT_SECRET` | JWT 密钥（至少 32 位随机字符） | 必填 |
 | `TYOPEN_PORT` | 端口 | 10000 |
 | `TYOPEN_DATA_DIR` | 数据目录（SQLite 库 `tyopen.db` 所在目录） | ./data |
-| `TYOPEN_SITE_URL` | 站点外部访问地址（用于生成分享链接） | http://localhost:10000 |
+| `TYOPEN_SITE_URL` | 站点外部访问地址（用于生成分享链接/二维码；生产环境建议显式设置） | http://localhost:10000 |
+| `TYOPEN_TRUSTED_PROXIES` | 可信反向代理 IP/CIDR，逗号分隔（如 `127.0.0.1,10.0.0.0/8`）；直接暴露时留空 | 空（不信任代理头） |
 
-> 密码优先级：在后台「系统设置 → 修改密码」改过的密码持久化在数据库里，**优先于** `TYOPEN_ADMIN_PASSWORD`；环境变量只作为初始/兜底密码。
+> 密码优先级：在后台「系统设置 → 修改密码」改过的密码持久化在数据库里，**优先于** `TYOPEN_ADMIN_PASSWORD`；环境变量只作为初始/兜底密码。已有 bcrypt 密码时重启不再强制要求设置 `TYOPEN_ADMIN_PASSWORD`。程序会将数据目录收紧为 `0700`、SQLite 文件收紧为 `0600`，请确保运行用户拥有 `data/`（Docker bind mount）权限。
 
 <br>
 
@@ -161,11 +162,13 @@ server {
         proxy_pass http://127.0.0.1:10000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
     }
 }
 ```
 
-HTTPS 用 certbot 或者套 Cloudflare。
+> 默认不信任任何 `X-Forwarded-*` 头。反代部署时请配置 `TYOPEN_TRUSTED_PROXIES=127.0.0.1`（或实际代理 IP/CIDR），并建议设置 `TYOPEN_SITE_URL` 固定外部地址。生产环境请使用 HTTPS，不要直接用明文端口暴露公网。管理员登出或修改密码会使已有 JWT（包括 WebDAV Bearer）失效；`forever` 只表示不过期，仍受服务端会话版本撤销。
 
 <br>
 

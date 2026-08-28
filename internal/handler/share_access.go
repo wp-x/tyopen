@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 	"tyopen/internal/model"
@@ -21,6 +24,14 @@ const shareAuthCookieTTL = 24 * time.Hour
 
 // shareTreeCacheTTL 文件夹分享子树 ID 集合缓存有效期
 const shareTreeCacheTTL = 30 * time.Second
+
+const (
+	maxShareTreeNodes        = 10000
+	maxShareTreeDirectories  = 2000
+	maxShareTreeCacheEntries = 1024
+)
+
+var errShareTreeTooLarge = errors.New("分享目录过大，暂时无法校验")
 
 // shareAuthToken 计算分享免密 cookie 值：HMAC-SHA256(分享密码, JWT secret) 的 hex
 func (h *Handler) shareAuthToken(sharePassword string) string {
@@ -47,6 +58,7 @@ func (h *Handler) setShareAuthCookie(c *gin.Context, share *model.Share) {
 		Path:     "/",
 		MaxAge:   maxAge,
 		HttpOnly: true,
+		Secure:   strings.HasPrefix(h.requestBaseURL(c), "https://"),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -89,43 +101,96 @@ var shareTreeCache = struct {
 	m map[string]shareTreeCacheEntry
 }{m: make(map[string]shareTreeCacheEntry)}
 
-// shareTreeIDs 枚举分享子树的所有文件/目录 ID（含根），带 30s 缓存
-func (h *Handler) shareTreeIDs(share *model.Share) (map[string]bool, error) {
+var shareTreeBuilds singleGroup
+
+// shareTreeIDs 枚举分享子树的所有文件/目录 ID（含根），带 30s 缓存并合并并发构建。
+func (h *Handler) shareTreeIDs(ctx context.Context, share *model.Share) (map[string]bool, error) {
 	key := share.ShareCode + "|" + share.TargetID
 
 	shareTreeCache.Lock()
+	now := time.Now()
 	entry, ok := shareTreeCache.m[key]
-	if ok && time.Now().Before(entry.expires) {
+	if ok && now.Before(entry.expires) {
 		shareTreeCache.Unlock()
 		return entry.ids, nil
 	}
 	shareTreeCache.Unlock()
 
-	ids, err := h.buildShareTreeIDs(share.TargetID)
+	value, err := shareTreeBuilds.Do(key, func() (interface{}, error) {
+		shareTreeCache.Lock()
+		if cached, exists := shareTreeCache.m[key]; exists && time.Now().Before(cached.expires) {
+			shareTreeCache.Unlock()
+			return cached.ids, nil
+		}
+		shareTreeCache.Unlock()
+
+		ids, buildErr := h.buildShareTreeIDs(ctx, share.TargetID)
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		shareTreeCache.Lock()
+		purgeExpiredShareTreeEntriesLocked(time.Now())
+		if len(shareTreeCache.m) >= maxShareTreeCacheEntries {
+			evictShareTreeCacheEntryLocked()
+		}
+		shareTreeCache.m[key] = shareTreeCacheEntry{ids: ids, expires: time.Now().Add(shareTreeCacheTTL)}
+		shareTreeCache.Unlock()
+		return ids, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	shareTreeCache.Lock()
-	shareTreeCache.m[key] = shareTreeCacheEntry{ids: ids, expires: time.Now().Add(shareTreeCacheTTL)}
-	shareTreeCache.Unlock()
-	return ids, nil
+	return value.(map[string]bool), nil
 }
 
-// buildShareTreeIDs BFS 枚举子树（复用 listAllShareFiles 的分页枚举逻辑）
-func (h *Handler) buildShareTreeIDs(rootID string) (map[string]bool, error) {
+func purgeExpiredShareTreeEntriesLocked(now time.Time) {
+	for cacheKey, cached := range shareTreeCache.m {
+		if !now.Before(cached.expires) {
+			delete(shareTreeCache.m, cacheKey)
+		}
+	}
+}
+
+func evictShareTreeCacheEntryLocked() {
+	var oldestKey string
+	var oldest time.Time
+	for key, entry := range shareTreeCache.m {
+		if oldestKey == "" || entry.expires.Before(oldest) {
+			oldestKey = key
+			oldest = entry.expires
+		}
+	}
+	if oldestKey != "" {
+		delete(shareTreeCache.m, oldestKey)
+	}
+}
+
+// buildShareTreeIDs BFS 枚举子树（复用 listAllShareFiles 的分页枚举逻辑）。
+// 设置节点和目录上限，避免恶意/超大分享无限放大上游请求与内存。
+func (h *Handler) buildShareTreeIDs(ctx context.Context, rootID string) (map[string]bool, error) {
 	ids := map[string]bool{rootID: true}
 	queue := []string{rootID}
+	directories := 0
 	for len(queue) > 0 {
+		if directories >= maxShareTreeDirectories || len(ids) >= maxShareTreeNodes {
+			return nil, errShareTreeTooLarge
+		}
 		dirID := queue[0]
 		queue = queue[1:]
-		files, err := h.listAllShareFiles(dirID)
+		directories++
+		files, err := h.listAllShareFiles(ctx, dirID)
 		if err != nil {
 			return nil, err
 		}
 		for _, f := range files {
+			if f == nil {
+				continue
+			}
 			if ids[f.ID] {
 				continue
+			}
+			if len(ids) >= maxShareTreeNodes {
+				return nil, errShareTreeTooLarge
 			}
 			ids[f.ID] = true
 			if f.IsDir {
@@ -139,7 +204,7 @@ func (h *Handler) buildShareTreeIDs(rootID string) (map[string]bool, error) {
 // resolveShareFileID 校验 fid/dir_id 归属：
 // 单文件分享只能用 target_id；文件夹分享必须是 target_id 或其后代。
 // 返回 ("", false) 表示禁止访问（调用方返回 404，不泄露信息）。
-func (h *Handler) resolveShareFileID(share *model.Share, fileID string) (string, bool) {
+func (h *Handler) resolveShareFileID(ctx context.Context, share *model.Share, fileID string) (string, bool) {
 	if fileID == "" || fileID == "0" {
 		return share.TargetID, true
 	}
@@ -149,7 +214,7 @@ func (h *Handler) resolveShareFileID(share *model.Share, fileID string) (string,
 	if share.TargetType != "folder" {
 		return "", false
 	}
-	ids, err := h.shareTreeIDs(share)
+	ids, err := h.shareTreeIDs(ctx, share)
 	if err != nil {
 		return "", false
 	}

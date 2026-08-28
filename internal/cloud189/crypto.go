@@ -10,7 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"net/http"
 	"regexp"
 	"sort"
@@ -24,11 +24,22 @@ func clientSuffix() map[string]string {
 		"clientType": pcClient,
 		"version":    version,
 		"channelId":  channelID,
-		"rand":       fmt.Sprintf("%d_%d", rand.Int63n(1e5), rand.Int63n(1e10)),
+		"rand":       fmt.Sprintf("%d_%d", secureRandomInt(1e5), secureRandomInt(1e10)),
 	}
 }
 
 var urlPathRegexp = regexp.MustCompile(`://[^/]+((/[^/\s?#]+)*)`)
+
+func secureRandomInt(max int64) int64 {
+	if max <= 0 {
+		return 0
+	}
+	n, err := cryptorand.Int(cryptorand.Reader, big.NewInt(max))
+	if err != nil {
+		return 0
+	}
+	return n.Int64()
+}
 
 // signatureOfHmac 所有业务 API 的 Signature 头（HMAC-SHA1，大写 HEX）
 // param 为 AES 加密后的 params query 值（无则传 ""）

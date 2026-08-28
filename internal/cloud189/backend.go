@@ -12,9 +12,9 @@ type panBackend interface {
 	// init 建立会话/验证凭据有效性
 	init(ctx context.Context) error
 	// listFiles 列目录（dirID ""/"0" 由实现映射为根目录）
-	listFiles(dirID string, page, pageSize int) ([]*model.FileInfo, error)
+	listFiles(ctx context.Context, dirID string, page, pageSize int) ([]*model.FileInfo, error)
 	// getDownloadURL 获取下载直链
-	getDownloadURL(fileID string) (string, error)
+	getDownloadURL(ctx context.Context, fileID string) (string, error)
 	// createDirectory 新建目录
 	createDirectory(ctx context.Context, parentID, dirName string) (*model.FileInfo, error)
 	// rename 重命名文件/目录

@@ -38,6 +38,7 @@ func (fs *Cloud189FS) createFile(ctx context.Context, params createFileParams) (
 
 	return &cloud189File{
 		fs:       fs,
+		ctx:      ctx,
 		name:     cleanName,
 		parentID: parentID,
 		fileName: fileName,
@@ -48,6 +49,7 @@ func (fs *Cloud189FS) createFile(ctx context.Context, params createFileParams) (
 }
 
 type openExistingFileParams struct {
+	ctx      context.Context
 	name     string
 	fileID   string
 	parentID string
@@ -71,6 +73,7 @@ func (fs *Cloud189FS) openExistingFile(params openExistingFileParams) (webdav.Fi
 	if (params.flag&os.O_WRONLY) != 0 || (params.flag&os.O_RDWR) != 0 || (params.flag&os.O_TRUNC) != 0 {
 		return &cloud189File{
 			fs:              fs,
+			ctx:             params.ctx,
 			name:            params.name,
 			fileID:          params.fileID,
 			overwriteFileID: params.fileID,
@@ -84,6 +87,7 @@ func (fs *Cloud189FS) openExistingFile(params openExistingFileParams) (webdav.Fi
 
 	return &cloud189File{
 		fs:       fs,
+		ctx:      params.ctx,
 		name:     params.name,
 		fileID:   params.fileID,
 		flag:     params.flag,

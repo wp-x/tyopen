@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image/png"
 	"log"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"tyopen/internal/cloud189"
 	"tyopen/internal/middleware"
@@ -48,7 +50,10 @@ type Handler struct {
 	notificationLogRepo *repository.NotificationLogRepository
 	panClient           *cloud189.Client
 	adminPassword       string
+	adminPasswordMu     sync.RWMutex
 	jwtSecret           string
+	siteURL             string
+	proxyTrust          *proxyTrust
 	monitorService      MonitorServiceInterface
 	listCache           ListCache
 	httpClient          HTTPDoer
@@ -56,6 +61,8 @@ type Handler struct {
 	directLimiter       *directRateLimiter
 	loginLimiter        *loginFailureLimiter
 	shareLimiter        *sharePasswordLimiter
+	publicShareLimiter  *publicShareRateLimiter
+	accessLogWrites     atomic.Uint64
 
 	// uploadProgress holds best-effort server-side upload progress keyed by upload_id.
 	// Used by the admin UI polling endpoint to show real progress during Upload2C.
@@ -75,6 +82,8 @@ type HandlerOptions struct {
 	PanClient           *cloud189.Client
 	AdminPassword       string
 	JWTSecret           string
+	SiteURL             string
+	TrustedProxies      []string
 	ListCache           ListCache
 	HTTPClient          HTTPDoer
 }
@@ -84,8 +93,12 @@ func NewHandler(opts HandlerOptions) *Handler {
 	if opts.ListCache == nil {
 		panic("list cache is required")
 	}
-	if opts.HTTPClient == nil {
-		panic("http client is required")
+	httpClient := opts.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 30 * time.Second}
+	} else if client, ok := httpClient.(*http.Client); ok && client == http.DefaultClient {
+		// 不允许无超时的全局 DefaultClient 进入公开内容代理路径。
+		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 	return &Handler{
 		settingsRepo:        opts.SettingsRepo,
@@ -96,21 +109,24 @@ func NewHandler(opts HandlerOptions) *Handler {
 		panClient:           opts.PanClient,
 		adminPassword:       opts.AdminPassword,
 		jwtSecret:           opts.JWTSecret,
+		siteURL:             normalizeSiteURL(opts.SiteURL),
+		proxyTrust:          newProxyTrust(opts.TrustedProxies),
 		listCache:           opts.ListCache,
-		httpClient:          opts.HTTPClient,
+		httpClient:          httpClient,
 		directCache:         NewDirectURLCache(DefaultDirectURLCacheTTL),
 		directLimiter:       newDirectRateLimiter(),
 		loginLimiter:        newLoginFailureLimiter(),
 		shareLimiter:        newSharePasswordLimiter(),
+		publicShareLimiter:  newPublicShareRateLimiter(),
 	}
 }
 
-func sharePasswordKey(c *gin.Context) string {
-	return c.RemoteIP() + "|" + c.Param("code")
+func (h *Handler) sharePasswordKey(c *gin.Context) string {
+	return h.publicClientIP(c) + "|" + c.Param("code")
 }
 
 func (h *Handler) checkSharePasswordAttempt(c *gin.Context) bool {
-	if h.shareLimiter.allow(sharePasswordKey(c)) {
+	if h.shareLimiter.allow(h.sharePasswordKey(c)) {
 		return true
 	}
 	c.Header("Retry-After", "900")
@@ -119,11 +135,40 @@ func (h *Handler) checkSharePasswordAttempt(c *gin.Context) bool {
 }
 
 func (h *Handler) recordSharePasswordFailure(c *gin.Context) {
-	h.shareLimiter.recordFailure(sharePasswordKey(c))
+	h.shareLimiter.recordFailure(h.sharePasswordKey(c))
 }
 
 func (h *Handler) resetSharePasswordFailures(c *gin.Context) {
-	h.shareLimiter.reset(sharePasswordKey(c))
+	h.shareLimiter.reset(h.sharePasswordKey(c))
+}
+
+const (
+	accessLogCleanupEvery = 1000
+	accessLogKeepCount    = 100000
+)
+
+// recordAccessLog 记录公开访问，并周期性清理旧日志，避免 SQLite 无限增长。
+func (h *Handler) recordAccessLog(logEntry *model.AccessLog) {
+	if h.accessLogRepo == nil || logEntry == nil {
+		return
+	}
+	// Header 值由匿名请求提供，写入前截断，避免超长 User-Agent/Referer 放大数据库占用。
+	logEntry.IPAddress = truncateAccessLogField(logEntry.IPAddress, 128)
+	logEntry.UserAgent = truncateAccessLogField(logEntry.UserAgent, 512)
+	logEntry.Referer = truncateAccessLogField(logEntry.Referer, 1024)
+	if err := h.accessLogRepo.Create(logEntry); err != nil {
+		return
+	}
+	if h.accessLogWrites.Add(1)%accessLogCleanupEvery == 0 {
+		_ = h.accessLogRepo.CleanOldLogs(accessLogKeepCount)
+	}
+}
+
+func truncateAccessLogField(value string, maxBytes int) string {
+	if len(value) <= maxBytes {
+		return value
+	}
+	return value[:maxBytes]
 }
 
 // SetMonitorService 设置监控服务
@@ -142,7 +187,7 @@ func (h *Handler) SetPanClient(client *cloud189.Client) {
 func (h *Handler) GetSiteConfig(c *gin.Context) {
 	settings, err := h.settingsRepo.Get()
 	if err != nil {
-		baseURL := requestBaseURL(c)
+		baseURL := h.requestBaseURL(c)
 		// 返回默认值
 		c.JSON(http.StatusOK, model.APIResponse{
 			Code:    0,
@@ -164,7 +209,7 @@ func (h *Handler) GetSiteConfig(c *gin.Context) {
 		return
 	}
 
-	baseURL := requestBaseURL(c)
+	baseURL := h.requestBaseURL(c)
 	c.JSON(http.StatusOK, model.APIResponse{
 		Code:    0,
 		Message: "success",
@@ -188,7 +233,7 @@ func (h *Handler) GetSiteConfig(c *gin.Context) {
 
 // Login 管理员登录
 func (h *Handler) Login(c *gin.Context) {
-	clientIP := c.RemoteIP()
+	clientIP := h.publicClientIP(c)
 	if !h.loginLimiter.allow(clientIP) {
 		c.Header("Retry-After", "900")
 		c.JSON(http.StatusTooManyRequests, model.APIResponse{Code: 429, Message: "登录尝试过多，请稍后再试"})
@@ -245,6 +290,21 @@ func (h *Handler) GetMe(c *gin.Context) {
 	})
 }
 
+// Logout 撤销当前会话版本。当前是单管理员模型，因此登出会使所有已签发会话失效，
+// 同时覆盖管理 API 和 WebDAV Bearer 认证。
+func (h *Handler) Logout(c *gin.Context) {
+	version, err := h.settingsRepo.BumpAdminTokenVersion()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.APIResponse{
+			Code:    500,
+			Message: "登出失败",
+		})
+		return
+	}
+	middleware.AdvanceAdminTokenVersion(version)
+	c.JSON(http.StatusOK, model.APIResponse{Code: 0, Message: "已登出"})
+}
+
 // ===================== 文件操作 =====================
 
 // ListFiles 获取文件列表
@@ -278,7 +338,7 @@ func (h *Handler) ListFiles(c *gin.Context) {
 		return
 	}
 
-	files, err := h.panClient.ListFiles(dirID, page, pageSize)
+	files, err := h.panClient.ListFilesContext(c.Request.Context(), dirID, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.APIResponse{
 			Code:    500,
@@ -443,7 +503,7 @@ func (h *Handler) GetFileLink(c *gin.Context) {
 		return
 	}
 
-	downloadURL, err := h.panClient.GetDownloadURL(fid)
+	downloadURL, err := h.panClient.GetDownloadURLContext(c.Request.Context(), fid)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.APIResponse{
 			Code:    500,
@@ -584,11 +644,40 @@ func (h *Handler) CreateDirectory(c *gin.Context) {
 
 // ===================== 分享管理 =====================
 
-// generateShareCode 生成随机分享码
-func generateShareCode() string {
-	bytes := make([]byte, 4)
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)
+// generateShareCode 生成 64 位随机分享码（16 位小写 HEX）。
+func generateShareCode() (string, error) {
+	bytes := make([]byte, 8)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+func validateShareCode(code string) error {
+	if code == "" {
+		return nil
+	}
+	if len(code) > 64 {
+		return fmt.Errorf("分享码最多 64 个字符")
+	}
+	for _, r := range code {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return fmt.Errorf("分享码只能包含字母、数字、下划线和短横线")
+	}
+	return nil
+}
+
+func parseShareExpireAt(value string) (*time.Time, error) {
+	if value == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, fmt.Errorf("过期时间格式错误，应为 ISO8601/RFC3339")
+	}
+	return &t, nil
 }
 
 func directShareEnabled(targetType string, requested bool) bool {
@@ -609,7 +698,20 @@ func (h *Handler) CreateShare(c *gin.Context) {
 	// 生成或使用自定义分享码
 	shareCode := req.ShareCode
 	if shareCode == "" {
-		shareCode = generateShareCode()
+		var err error
+		shareCode, err = generateShareCode()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, model.APIResponse{Code: 500, Message: "生成分享码失败"})
+			return
+		}
+	}
+	if err := validateShareCode(shareCode); err != nil {
+		c.JSON(http.StatusBadRequest, model.APIResponse{Code: 400, Message: err.Error()})
+		return
+	}
+	if req.MaxDownloads < 0 {
+		c.JSON(http.StatusBadRequest, model.APIResponse{Code: 400, Message: "最大下载次数不能为负数"})
+		return
 	}
 
 	// 检查分享码是否已存在
@@ -622,13 +724,11 @@ func (h *Handler) CreateShare(c *gin.Context) {
 		return
 	}
 
-	// 解析过期时间
-	var expireAt *time.Time
-	if req.ExpireAt != "" {
-		t, err := time.Parse(time.RFC3339, req.ExpireAt)
-		if err == nil {
-			expireAt = &t
-		}
+	// 解析过期时间；格式错误直接拒绝，避免用户以为已设置过期但实际永久有效。
+	expireAt, err := parseShareExpireAt(req.ExpireAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.APIResponse{Code: 400, Message: err.Error()})
+		return
 	}
 
 	isDirect := directShareEnabled(req.TargetType, req.IsDirect)
@@ -724,6 +824,10 @@ func (h *Handler) UpdateShare(c *gin.Context) {
 	}
 
 	if req.ShareCode != "" && req.ShareCode != share.ShareCode {
+		if err := validateShareCode(req.ShareCode); err != nil {
+			c.JSON(http.StatusBadRequest, model.APIResponse{Code: 400, Message: err.Error()})
+			return
+		}
 		exists, _ := h.shareRepo.CodeExists(req.ShareCode)
 		if exists {
 			c.JSON(http.StatusBadRequest, model.APIResponse{
@@ -741,6 +845,10 @@ func (h *Handler) UpdateShare(c *gin.Context) {
 		share.IsActive = *req.IsActive
 	}
 	if req.MaxDownloads != nil {
+		if *req.MaxDownloads < 0 {
+			c.JSON(http.StatusBadRequest, model.APIResponse{Code: 400, Message: "最大下载次数不能为负数"})
+			return
+		}
 		share.MaxDownloads = *req.MaxDownloads
 	}
 	if req.IsDirect != nil {
@@ -752,14 +860,12 @@ func (h *Handler) UpdateShare(c *gin.Context) {
 		share.Password = ""
 	}
 
-	if req.ExpireAt != "" {
-		t, err := time.Parse(time.RFC3339, req.ExpireAt)
-		if err == nil {
-			share.ExpireAt = &t
-		}
-	} else {
-		share.ExpireAt = nil
+	expireAt, err := parseShareExpireAt(req.ExpireAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.APIResponse{Code: 400, Message: err.Error()})
+		return
 	}
+	share.ExpireAt = expireAt
 
 	if err := h.shareRepo.Update(share); err != nil {
 		c.JSON(http.StatusInternalServerError, model.APIResponse{
@@ -832,10 +938,10 @@ func (h *Handler) AccessShare(c *gin.Context) {
 
 	// 记录访问日志
 	h.shareRepo.IncrementViewCount(share.ID)
-	h.accessLogRepo.Create(&model.AccessLog{
+	h.recordAccessLog(&model.AccessLog{
 		ShareID:   share.ID,
 		Action:    "view",
-		IPAddress: c.ClientIP(),
+		IPAddress: h.publicClientIP(c),
 		UserAgent: c.GetHeader("User-Agent"),
 		Referer:   c.GetHeader("Referer"),
 	})
@@ -972,7 +1078,7 @@ func (h *Handler) DownloadShare(c *gin.Context) {
 
 	// 校验 fid 归属：单文件分享只能访问 target_id，
 	// 文件夹分享 fid 必须是 target_id 或其后代（防 IDOR）
-	fileID, ok := h.resolveShareFileID(share, fileID)
+	fileID, ok := h.resolveShareFileID(c.Request.Context(), share, fileID)
 	if !ok {
 		c.JSON(http.StatusNotFound, model.APIResponse{
 			Code:    404,
@@ -982,7 +1088,7 @@ func (h *Handler) DownloadShare(c *gin.Context) {
 	}
 
 	// 获取下载链接
-	downloadURL, err := h.panClient.GetDownloadURL(fileID)
+	downloadURL, err := h.panClient.GetDownloadURLContext(c.Request.Context(), fileID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.APIResponse{
 			Code:    500,
@@ -991,12 +1097,27 @@ func (h *Handler) DownloadShare(c *gin.Context) {
 		return
 	}
 
-	// 记录下载
-	h.shareRepo.IncrementDownloadCount(share.ID)
-	h.accessLogRepo.Create(&model.AccessLog{
+	// 原子记录下载：前面的快照检查只用于快速拒绝，最终上限判断必须在数据库中完成，
+	// 避免并发请求同时读到同一个旧 DownloadCount 而突破 max_downloads。
+	allowed, err := h.shareRepo.TryIncrementDownloadCount(share.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.APIResponse{
+			Code:    500,
+			Message: "记录下载失败",
+		})
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, model.APIResponse{
+			Code:    403,
+			Message: "下载次数已达上限",
+		})
+		return
+	}
+	h.recordAccessLog(&model.AccessLog{
 		ShareID:   share.ID,
 		Action:    "download",
-		IPAddress: c.ClientIP(),
+		IPAddress: h.publicClientIP(c),
 		UserAgent: c.GetHeader("User-Agent"),
 		Referer:   c.GetHeader("Referer"),
 	})
@@ -1471,14 +1592,18 @@ func (h *Handler) UpdatePassword(c *gin.Context) {
 		})
 		return
 	}
-	if err := h.settingsRepo.UpdateAdminPasswordHash(hash); err != nil {
+	version, err := h.settingsRepo.UpdateAdminPasswordHashAndBump(hash)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.APIResponse{
 			Code:    500,
 			Message: "保存密码失败",
 		})
 		return
 	}
+	middleware.AdvanceAdminTokenVersion(version)
+	h.adminPasswordMu.Lock()
 	h.adminPassword = req.NewPassword
+	h.adminPasswordMu.Unlock()
 
 	c.JSON(http.StatusOK, model.APIResponse{
 		Code:    0,
@@ -1492,6 +1617,8 @@ func (h *Handler) VerifyAdminPassword(password string) bool {
 	if settings, err := h.settingsRepo.Get(); err == nil && settings != nil && settings.AdminPasswordHash != "" {
 		return bcrypt.CompareHashAndPassword([]byte(settings.AdminPasswordHash), []byte(password)) == nil
 	}
+	h.adminPasswordMu.RLock()
+	defer h.adminPasswordMu.RUnlock()
 	return password == h.adminPassword
 }
 
@@ -1655,24 +1782,40 @@ func (h *Handler) BatchCreateShare(c *gin.Context) {
 	}
 
 	results := make([]*model.Share, 0, len(req.Items))
-	for _, item := range req.Items {
+	for i, item := range req.Items {
+		if item.MaxDownloads < 0 {
+			c.JSON(http.StatusBadRequest, model.APIResponse{Code: 400, Message: fmt.Sprintf("第 %d 项的最大下载次数不能为负数", i+1)})
+			return
+		}
 		shareCode := item.ShareCode
 		if shareCode == "" {
-			shareCode = generateShareCode()
+			var err error
+			shareCode, err = generateShareCode()
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, model.APIResponse{Code: 500, Message: "生成分享码失败"})
+				return
+			}
+		}
+		if err := validateShareCode(shareCode); err != nil {
+			c.JSON(http.StatusBadRequest, model.APIResponse{Code: 400, Message: fmt.Sprintf("第 %d 项: %s", i+1, err.Error())})
+			return
 		}
 
-		// 检查分享码
+		// 检查分享码；批量创建中冲突时重新生成随机码。
 		exists, _ := h.shareRepo.CodeExists(shareCode)
 		if exists {
-			shareCode = generateShareCode() // 重新生成
+			var err error
+			shareCode, err = generateShareCode()
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, model.APIResponse{Code: 500, Message: "生成分享码失败"})
+				return
+			}
 		}
 
-		var expireAt *time.Time
-		if item.ExpireAt != "" {
-			t, err := time.Parse(time.RFC3339, item.ExpireAt)
-			if err == nil {
-				expireAt = &t
-			}
+		expireAt, err := parseShareExpireAt(item.ExpireAt)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, model.APIResponse{Code: 400, Message: fmt.Sprintf("第 %d 项: %s", i+1, err.Error())})
+			return
 		}
 
 		share := &model.Share{
@@ -1753,7 +1896,7 @@ func (h *Handler) GetShareFiles(c *gin.Context) {
 	}
 
 	// 校验 dir_id 归属：必须是分享根目录或其后代（防 IDOR）
-	dirID, ok := h.resolveShareFileID(share, dirID)
+	dirID, ok := h.resolveShareFileID(c.Request.Context(), share, dirID)
 	if !ok {
 		c.JSON(http.StatusNotFound, model.APIResponse{
 			Code:    404,
@@ -1763,12 +1906,15 @@ func (h *Handler) GetShareFiles(c *gin.Context) {
 	}
 
 	// 获取文件列表
-	files, err := h.listAllShareFiles(dirID)
+	files, err := h.listAllShareFiles(c.Request.Context(), dirID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.APIResponse{
-			Code:    500,
-			Message: "获取文件列表失败",
-		})
+		status := http.StatusInternalServerError
+		message := "获取文件列表失败"
+		if errors.Is(err, errShareTreeTooLarge) {
+			status = http.StatusServiceUnavailable
+			message = "分享内容暂时不可用"
+		}
+		c.JSON(status, model.APIResponse{Code: status, Message: message})
 		return
 	}
 
@@ -1814,8 +1960,8 @@ func (h *Handler) GetShareQRCode(c *gin.Context) {
 		return
 	}
 
-	// 站点 URL：复用 requestBaseURL（正确处理反代头），不再用 SiteLogo 占位
-	siteURL := requestBaseURL(c)
+	// 站点 URL：优先显式配置，否则仅采信可信代理转发头
+	siteURL := h.requestBaseURL(c)
 
 	shareURL := fmt.Sprintf("%s/s/%s", siteURL, share.ShareCode)
 
@@ -1901,7 +2047,7 @@ func (h *Handler) PreviewShare(c *gin.Context) {
 	}
 
 	// 校验 fid 归属（防 IDOR）
-	fileID, ok := h.resolveShareFileID(share, fileID)
+	fileID, ok := h.resolveShareFileID(c.Request.Context(), share, fileID)
 	if !ok {
 		c.JSON(http.StatusNotFound, model.APIResponse{
 			Code:    404,
@@ -1911,7 +2057,7 @@ func (h *Handler) PreviewShare(c *gin.Context) {
 	}
 
 	// 获取下载链接（预览也是相同链接）
-	downloadURL, err := h.panClient.GetDownloadURL(fileID)
+	downloadURL, err := h.panClient.GetDownloadURLContext(c.Request.Context(), fileID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.APIResponse{
 			Code:    500,
@@ -1961,7 +2107,7 @@ func (h *Handler) GetFilePreviewInfo(c *gin.Context) {
 	}
 
 	// 校验 fid 归属（防 IDOR）
-	fileID, ok := h.resolveShareFileID(share, fileID)
+	fileID, ok := h.resolveShareFileID(c.Request.Context(), share, fileID)
 	if !ok {
 		c.JSON(http.StatusNotFound, model.APIResponse{
 			Code:    404,

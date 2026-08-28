@@ -17,10 +17,13 @@ type Database struct {
 
 // NewDatabase 创建数据库连接
 func NewDatabase(dbPath string) (*Database, error) {
-	// 确保数据目录存在
+	// 确保数据目录仅当前服务用户可遍历，避免同机其他用户读取数据库中的凭据。
 	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("创建数据目录失败: %w", err)
+	}
+	if err := os.Chmod(dir, 0700); err != nil {
+		return nil, fmt.Errorf("收紧数据目录权限失败: %w", err)
 	}
 
 	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
@@ -30,7 +33,15 @@ func NewDatabase(dbPath string) (*Database, error) {
 
 	database := &Database{db: db}
 	if err := database.migrate(); err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("数据库迁移失败: %w", err)
+	}
+	// SQLite 在首次写入时才创建数据库/WAL 文件，迁移后统一收紧主文件及已存在的伴随文件。
+	for _, path := range []string{dbPath, dbPath + "-wal", dbPath + "-shm"} {
+		if err := tightenFilePermissions(path); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
 	}
 
 	return database, nil
@@ -162,6 +173,9 @@ func (d *Database) migrate() error {
 
 		// 管理员密码 bcrypt 哈希（后台改密后优先于环境变量密码）
 		`ALTER TABLE settings ADD COLUMN admin_password_hash TEXT DEFAULT ''`,
+
+		// 管理员会话版本（改密/登出时递增，使已有 JWT 失效）
+		`ALTER TABLE settings ADD COLUMN admin_token_version INTEGER DEFAULT 0`,
 	}
 
 	for _, migration := range migrations {
@@ -174,6 +188,16 @@ func (d *Database) migrate() error {
 		}
 	}
 
+	return nil
+}
+
+func tightenFilePermissions(path string) error {
+	if err := os.Chmod(path, 0600); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("收紧数据库文件权限失败（%s）: %w", path, err)
+	}
 	return nil
 }
 

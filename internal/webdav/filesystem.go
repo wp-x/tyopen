@@ -3,6 +3,7 @@ package webdav
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path"
 	"sync"
@@ -14,7 +15,8 @@ import (
 
 // Cloud189FS 实现 webdav.FileSystem 接口
 type Cloud189FS struct {
-	client *cloud189.Client
+	client     *cloud189.Client
+	httpClient *http.Client
 
 	dirCacheMu  sync.RWMutex
 	dirCache    map[string]*dirCacheEntry
@@ -33,10 +35,11 @@ type Cloud189FS struct {
 // NewCloud189FS 创建新的 WebDAV 文件系统
 func NewCloud189FS(client *cloud189.Client) *Cloud189FS {
 	return &Cloud189FS{
-		client:    client,
-		dirCache:  make(map[string]*dirCacheEntry),
-		pathCache: make(map[string]*pathCacheEntry),
-		urlCache:  make(map[string]urlCacheEntry),
+		client:     client,
+		httpClient: &http.Client{Timeout: 2 * time.Minute},
+		dirCache:   make(map[string]*dirCacheEntry),
+		pathCache:  make(map[string]*pathCacheEntry),
+		urlCache:   make(map[string]urlCacheEntry),
 	}
 }
 
@@ -52,6 +55,11 @@ const urlCacheTTL = 8 * time.Minute
 // WebDAV 客户端会对同一文件密集发起 HEAD/GET，直连每次都锁 metaMu 打上游，
 // 这里合并并短时缓存，是挂载不卡的关键。
 func (fs *Cloud189FS) DownloadURL(fileID string) (string, error) {
+	return fs.DownloadURLContext(context.Background(), fileID)
+}
+
+// DownloadURLContext 与 DownloadURL 相同，但将 WebDAV 请求上下文传递给云盘 API。
+func (fs *Cloud189FS) DownloadURLContext(ctx context.Context, fileID string) (string, error) {
 	fs.urlCacheMu.RLock()
 	e, ok := fs.urlCache[fileID]
 	fs.urlCacheMu.RUnlock()
@@ -60,7 +68,7 @@ func (fs *Cloud189FS) DownloadURL(fileID string) (string, error) {
 	}
 
 	v, err, _ := fs.urlSF.Do(fileID, func() (interface{}, error) {
-		url, err := fs.client.GetDownloadURL(fileID)
+		url, err := fs.client.GetDownloadURLContext(ctx, fileID)
 		if err != nil {
 			return "", err
 		}
@@ -91,7 +99,7 @@ func (fs *Cloud189FS) Mkdir(ctx context.Context, name string, perm os.FileMode) 
 		return err
 	}
 
-	_, err = fs.client.CreateDirectory(parentID, dirName)
+	_, err = fs.client.CreateDirectoryCtx(ctx, parentID, dirName)
 	if err != nil {
 		return err
 	}
@@ -135,6 +143,7 @@ func (fs *Cloud189FS) OpenFile(ctx context.Context, name string, flag int, perm 
 	}
 
 	return fs.openExistingFile(openExistingFileParams{
+		ctx:      ctx,
 		name:     cleanName,
 		fileID:   id,
 		parentID: parentID,

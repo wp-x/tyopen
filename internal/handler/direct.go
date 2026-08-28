@@ -96,8 +96,8 @@ func (h *Handler) DirectLink(c *gin.Context) {
 		return
 	}
 
-	// 限速（每 IP 每分钟）
-	if !h.directLimiter.allow(c.ClientIP(), settings.DirectRateLimit) {
+	// 限速（每 IP 每分钟）；仅在可信代理场景采信 X-Forwarded-For。
+	if !h.directLimiter.allow(h.publicClientIP(c), settings.DirectRateLimit) {
 		h.directRejectWith(c, http.StatusTooManyRequests, "请求过于频繁", settings.DirectRejectPlaceholder)
 		return
 	}
@@ -108,25 +108,33 @@ func (h *Handler) DirectLink(c *gin.Context) {
 		return
 	}
 
-	// 取直链：缓存优先，miss 才打上游并计一次引用
+	// 取直链：缓存只复用云盘 URL，不影响每次 TyOpen 访问的下载次数计数。
 	downloadURL, hit := h.directCache.Get(share.TargetID)
 	if !hit {
-		downloadURL, err = h.panClient.GetDownloadURL(share.TargetID)
+		downloadURL, err = h.panClient.GetDownloadURLContext(c.Request.Context(), share.TargetID)
 		if err != nil {
 			h.directRejectWith(c, http.StatusBadGateway, "获取直链失败", true)
 			return
 		}
 		h.directCache.Set(share.TargetID, downloadURL)
-
-		h.shareRepo.IncrementDownloadCount(share.ID)
-		h.accessLogRepo.Create(&model.AccessLog{
-			ShareID:   share.ID,
-			Action:    "download",
-			IPAddress: c.ClientIP(),
-			UserAgent: c.GetHeader("User-Agent"),
-			Referer:   c.GetHeader("Referer"),
-		})
 	}
+
+	allowed, err := h.shareRepo.TryIncrementDownloadCount(share.ID)
+	if err != nil {
+		h.directRejectWith(c, http.StatusInternalServerError, "记录下载失败", false)
+		return
+	}
+	if !allowed {
+		h.directRejectWith(c, http.StatusForbidden, "链接已失效", settings.DirectRejectPlaceholder)
+		return
+	}
+	h.recordAccessLog(&model.AccessLog{
+		ShareID:   share.ID,
+		Action:    "download",
+		IPAddress: h.publicClientIP(c),
+		UserAgent: c.GetHeader("User-Agent"),
+		Referer:   c.GetHeader("Referer"),
+	})
 
 	c.Redirect(http.StatusFound, downloadURL)
 }

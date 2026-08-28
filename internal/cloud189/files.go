@@ -41,10 +41,15 @@ type listFolderItem struct {
 
 // ListFiles 获取文件列表（个人云）。dirID 为 "0" 或 "" 时视为根目录（-11）。
 func (c *Client) ListFiles(dirID string, page, pageSize int) ([]*model.FileInfo, error) {
+	return c.ListFilesContext(context.Background(), dirID, page, pageSize)
+}
+
+// ListFilesContext 获取文件列表并将调用方 context 传递到上游请求。
+func (c *Client) ListFilesContext(ctx context.Context, dirID string, page, pageSize int) ([]*model.FileInfo, error) {
 	if err := c.requireInitialized(); err != nil {
 		return nil, err
 	}
-	return c.activeBackend().listFiles(dirID, page, pageSize)
+	return c.activeBackend().listFiles(ctx, dirID, page, pageSize)
 }
 
 // fileInfosFromList 列目录响应 → FileInfo 列表（目录在前），两种模式共用
@@ -81,7 +86,7 @@ func fileInfosFromList(resp *listFilesResp, dirID string) []*model.FileInfo {
 	return files
 }
 
-func (b *pcBackend) listFiles(dirID string, page, pageSize int) ([]*model.FileInfo, error) {
+func (b *pcBackend) listFiles(ctx context.Context, dirID string, page, pageSize int) ([]*model.FileInfo, error) {
 	c := b.c
 	dirID = c.normalizeDirID(dirID)
 	if page < 1 {
@@ -91,7 +96,7 @@ func (b *pcBackend) listFiles(dirID string, page, pageSize int) ([]*model.FileIn
 		pageSize = 50
 	}
 
-	body, err := c.request(context.Background(), http.MethodGet, apiURL+"/listFiles.action",
+	body, err := c.request(ctx, http.MethodGet, apiURL+"/listFiles.action",
 		map[string]string{
 			"folderId":   dirID,
 			"fileType":   "0",
@@ -116,15 +121,20 @@ func (b *pcBackend) listFiles(dirID string, page, pageSize int) ([]*model.FileIn
 
 // GetDownloadURL 获取文件下载直链。直链短时效，随用随取。
 func (c *Client) GetDownloadURL(fileID string) (string, error) {
+	return c.GetDownloadURLContext(context.Background(), fileID)
+}
+
+// GetDownloadURLContext 获取下载直链并将调用方 context 传递到上游请求。
+func (c *Client) GetDownloadURLContext(ctx context.Context, fileID string) (string, error) {
 	if err := c.requireInitialized(); err != nil {
 		return "", err
 	}
-	return c.activeBackend().getDownloadURL(fileID)
+	return c.activeBackend().getDownloadURL(ctx, fileID)
 }
 
-func (b *pcBackend) getDownloadURL(fileID string) (string, error) {
+func (b *pcBackend) getDownloadURL(ctx context.Context, fileID string) (string, error) {
 	c := b.c
-	body, err := c.request(context.Background(), http.MethodGet, apiURL+"/getFileDownloadUrl.action",
+	body, err := c.request(ctx, http.MethodGet, apiURL+"/getFileDownloadUrl.action",
 		map[string]string{
 			"fileId": fileID,
 			"dt":     "3",
@@ -145,19 +155,20 @@ func (b *pcBackend) getDownloadURL(fileID string) (string, error) {
 
 	downloadURL := strings.ReplaceAll(resp.FileDownloadURL, "&amp;", "&")
 	downloadURL = strings.Replace(downloadURL, "http://", "https://", 1)
-	return followDownloadRedirect(downloadURL, "")
+	return followDownloadRedirect(ctx, downloadURL, "")
 }
 
 // followDownloadRedirect 禁止重定向地 GET 一次，若 302 取 Location 作为最终直链。
 // cookie 非空时携带（网页版 downloadFile.action 必须带 Cookie 才会 302）。
 // 若上游返回错误（HTTP 4xx/5xx 或错误 JSON/XML），返回明确错误而不是透传坏链接。
-func followDownloadRedirect(downloadURL, cookie string) (string, error) {
+func followDownloadRedirect(ctx context.Context, downloadURL, cookie string) (string, error) {
 	noRedirect := &http.Client{
+		Timeout: 30 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
-	req, err := http.NewRequest(http.MethodGet, downloadURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return "", err
 	}

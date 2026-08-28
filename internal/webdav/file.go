@@ -14,6 +14,7 @@ import (
 // cloud189File 实现 webdav.File 接口（文件）
 type cloud189File struct {
 	fs       *Cloud189FS
+	ctx      context.Context
 	name     string
 	fileID   string
 	parentID string
@@ -71,12 +72,15 @@ func (f *cloud189File) Close() error {
 func (f *cloud189File) Read(p []byte) (n int, err error) {
 	if f.reader == nil {
 		// 获取下载链接并创建 reader（走缓存 + singleflight）
-		downloadURL, err := f.fs.DownloadURL(f.fileID)
+		if f.ctx == nil {
+			f.ctx = context.Background()
+		}
+		downloadURL, err := f.fs.DownloadURLContext(f.ctx, f.fileID)
 		if err != nil {
 			return 0, err
 		}
 
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, downloadURL, nil)
+		req, err := http.NewRequestWithContext(f.ctx, http.MethodGet, downloadURL, nil)
 		if err != nil {
 			return 0, err
 		}
@@ -84,7 +88,7 @@ func (f *cloud189File) Read(p []byte) (n int, err error) {
 			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", f.position))
 		}
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := f.fs.httpClient.Do(req)
 		if err != nil {
 			return 0, err
 		}
@@ -160,10 +164,10 @@ func (f *cloud189File) Stat() (os.FileInfo, error) {
 	if f.isNew {
 		size := f.writeLen
 		return &fileInfo{
-			name:    f.fileName,
-			size:    size,
-			mode:    0644,
-			isDir:   false,
+			name:  f.fileName,
+			size:  size,
+			mode:  0644,
+			isDir: false,
 		}, nil
 	}
 
@@ -184,13 +188,16 @@ func (f *cloud189File) upload() error {
 	if f.tmp == nil {
 		return fmt.Errorf("no temp file")
 	}
+	if f.ctx == nil {
+		f.ctx = context.Background()
+	}
 	if _, err := f.tmp.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
 
 	// For overwrites, delete the old file after the new upload succeeds.
 	_, err := f.fs.client.UploadFile(
-		context.Background(),
+		f.ctx,
 		f.parentID,
 		f.fileName,
 		"application/octet-stream",
@@ -207,7 +214,7 @@ func (f *cloud189File) upload() error {
 	}
 	f.fs.invalidatePathCache(f.name)
 	if f.overwriteFileID != "" {
-		_ = f.fs.client.Delete(context.Background(), false, f.overwriteFileID)
+		_ = f.fs.client.Delete(f.ctx, false, f.overwriteFileID)
 	}
 	return nil
 }

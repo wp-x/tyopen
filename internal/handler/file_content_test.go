@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -37,6 +38,19 @@ func TestFetchRemoteFileContentRejectsUpstreamError(t *testing.T) {
 
 	if _, err := fetchRemoteFileContent(context.Background(), server.Client(), server.URL); err == nil {
 		t.Fatal("上游错误响应应返回错误")
+	}
+}
+
+func TestFetchRemoteFileContentTimesOut(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		_, _ = w.Write([]byte("late"))
+	}))
+	defer server.Close()
+
+	client := &http.Client{Timeout: 20 * time.Millisecond}
+	if _, err := fetchRemoteFileContent(context.Background(), client, server.URL); err == nil {
+		t.Fatal("慢上游应触发 timeout")
 	}
 }
 

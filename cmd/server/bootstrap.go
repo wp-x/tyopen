@@ -44,7 +44,7 @@ func initRepositories(db *repository.Database) repoBundle {
 	}
 }
 
-func initHandler(repos repoBundle, panClient *cloud189.Client, adminPassword, jwtSecret string) *handler.Handler {
+func initHandler(repos repoBundle, panClient *cloud189.Client, cfg *config.Config) *handler.Handler {
 	listCache := handler.NewListTTLCache(handler.DefaultListCacheTTL)
 	return handler.NewHandler(handler.HandlerOptions{
 		SettingsRepo:        repos.settings,
@@ -53,10 +53,12 @@ func initHandler(repos repoBundle, panClient *cloud189.Client, adminPassword, jw
 		MonitorRepo:         repos.monitor,
 		NotificationLogRepo: repos.notification,
 		PanClient:           panClient,
-		AdminPassword:       adminPassword,
-		JWTSecret:           jwtSecret,
+		AdminPassword:       cfg.AdminPassword,
+		JWTSecret:           cfg.JWTSecret,
+		SiteURL:             cfg.SiteURL,
+		TrustedProxies:      cfg.TrustedProxies,
 		ListCache:           listCache,
-		HTTPClient:          http.DefaultClient,
+		HTTPClient:          nil, // NewHandler 使用带 30s 超时的文件内容代理客户端
 	})
 }
 
@@ -75,9 +77,15 @@ func maybeStartMonitor(settingsRepo *repository.SettingsRepository, monitorServi
 	}
 }
 
-func setupRouter(opts routeOptions) *gin.Engine {
+func setupRouter(opts routeOptions, cfg *config.Config) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+	// 默认不信任任何代理头，避免伪造 X-Forwarded-For 绕过 IP 限流。
+	// 反向代理部署时通过 TYOPEN_TRUSTED_PROXIES 显式配置代理 IP/CIDR。
+	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		log.Printf("TYOPEN_TRUSTED_PROXIES 配置无效: %v（将不信任代理头）", err)
+		_ = r.SetTrustedProxies(nil)
+	}
 	r.Use(middleware.CORSMiddleware())
 	r.Use(middleware.SecurityHeadersMiddleware())
 	registerRoutes(r, opts)
@@ -244,15 +252,9 @@ func authenticateWebDAV(w http.ResponseWriter, r *http.Request, verify func(user
 }
 
 func getWebDAVAuthHeader(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	if auth != "" {
-		return auth
-	}
-	auth = r.Header.Get("X-Forwarded-Authorization")
-	if auth != "" {
-		return auth
-	}
-	return r.Header.Get("X-Original-Authorization")
+	// 只接受标准 Authorization，避免客户端伪造转发头造成认证来源混乱。
+	// 反代如需透传认证，应使用 proxy_set_header Authorization $http_authorization。
+	return r.Header.Get("Authorization")
 }
 
 func parseBasicAuth(auth string) (string, string, bool) {

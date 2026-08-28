@@ -131,4 +131,3 @@ func (h *Handler) GetUploadProgress(c *gin.Context) {
 		},
 	})
 }
-

@@ -13,7 +13,7 @@ import (
 )
 
 // listFiles 网页版列目录：GET /api/open/file/listFiles.action
-func (b *webBackend) listFiles(dirID string, page, pageSize int) ([]*model.FileInfo, error) {
+func (b *webBackend) listFiles(ctx context.Context, dirID string, page, pageSize int) ([]*model.FileInfo, error) {
 	dirID = b.c.normalizeDirID(dirID)
 	if page < 1 {
 		page = 1
@@ -22,7 +22,7 @@ func (b *webBackend) listFiles(dirID string, page, pageSize int) ([]*model.FileI
 		pageSize = 60
 	}
 
-	body, err := b.request(context.Background(), http.MethodGet, webURL+"/api/open/file/listFiles.action",
+	body, err := b.request(ctx, http.MethodGet, webURL+"/api/open/file/listFiles.action",
 		map[string]string{
 			"pageSize":   strconv.Itoa(pageSize),
 			"pageNum":    strconv.Itoa(page),
@@ -44,8 +44,8 @@ func (b *webBackend) listFiles(dirID string, page, pageSize int) ([]*model.FileI
 }
 
 // getDownloadURL 网页版下载直链：getFileInfo → downloadUrl → 手动跟随 302 取 Location
-func (b *webBackend) getDownloadURL(fileID string) (string, error) {
-	body, err := b.request(context.Background(), http.MethodGet, webURL+"/api/portal/getFileInfo.action",
+func (b *webBackend) getDownloadURL(ctx context.Context, fileID string) (string, error) {
+	body, err := b.request(ctx, http.MethodGet, webURL+"/api/portal/getFileInfo.action",
 		map[string]string{"fileId": fileID}, nil)
 	if err != nil {
 		return "", fmt.Errorf("获取下载链接失败: %w", err)
@@ -64,7 +64,7 @@ func (b *webBackend) getDownloadURL(fileID string) (string, error) {
 	if strings.HasPrefix(downloadURL, "//") {
 		downloadURL = "https:" + downloadURL
 	}
-	finalURL, err := followDownloadRedirect(downloadURL, b.c.getCookie())
+	finalURL, err := followDownloadRedirect(ctx, downloadURL, b.c.getCookie())
 	if err != nil {
 		return "", err
 	}

@@ -215,10 +215,28 @@ func (r *ShareRepository) IncrementViewCount(id int64) error {
 	return err
 }
 
-// IncrementDownloadCount 增加下载计数
+// IncrementDownloadCount 增加下载计数（不带上限检查，保留给统计/兼容调用）。
 func (r *ShareRepository) IncrementDownloadCount(id int64) error {
 	_, err := r.db.Exec(`UPDATE shares SET download_count = download_count + 1 WHERE id = ?`, id)
 	return err
+}
+
+// TryIncrementDownloadCount 在下载次数未达到上限时原子增加计数。
+// 返回 false 表示分享不存在或已达到 max_downloads；max_downloads=0 表示不限制。
+func (r *ShareRepository) TryIncrementDownloadCount(id int64) (bool, error) {
+	result, err := r.db.Exec(`
+		UPDATE shares
+		SET download_count = COALESCE(download_count, 0) + 1
+		WHERE id = ? AND (COALESCE(max_downloads, 0) = 0 OR COALESCE(download_count, 0) < max_downloads)
+	`, id)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected == 1, nil
 }
 
 // CodeExists 检查share_code是否存在
@@ -244,6 +262,20 @@ func (r *AccessLogRepository) Create(log *model.AccessLog) error {
 		INSERT INTO access_logs (share_id, action, ip_address, user_agent, referer)
 		VALUES (?, ?, ?, ?, ?)
 	`, log.ShareID, log.Action, log.IPAddress, log.UserAgent, log.Referer)
+	return err
+}
+
+// CleanOldLogs 保留最近 keepCount 条访问日志，避免公开接口长期运行导致数据库无限增长。
+func (r *AccessLogRepository) CleanOldLogs(keepCount int) error {
+	if keepCount < 1 {
+		return nil
+	}
+	_, err := r.db.Exec(`
+		DELETE FROM access_logs
+		WHERE id NOT IN (
+			SELECT id FROM access_logs ORDER BY id DESC LIMIT ?
+		)
+	`, keepCount)
 	return err
 }
 

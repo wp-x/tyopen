@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"sync"
+	"time"
 )
 
 const (
@@ -63,15 +65,33 @@ type Client struct {
 	web *webBackend
 }
 
+// newCloudHTTPClient 为云盘 API/上传请求提供连接层超时和整体超时。
+// 上传按分片执行，单片 2 分钟足够宽松；整体上传仍由调用方 context 控制。
+func newCloudHTTPClient(jar http.CookieJar) *http.Client {
+	return &http.Client{
+		Jar:     jar,
+		Timeout: 2 * time.Minute,
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   15 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			IdleConnTimeout:       90 * time.Second,
+		},
+	}
+}
+
 // NewClient 创建电信云盘客户端（账号为手机号）
 func NewClient(account, password string) *Client {
 	jar, _ := cookiejar.New(nil)
 	c := &Client{
-		account:  account,
-		password: password,
-		httpClient: &http.Client{
-			Jar: jar,
-		},
+		account:    account,
+		password:   password,
+		httpClient: newCloudHTTPClient(jar),
 	}
 	c.pc = &pcBackend{c: c}
 	c.web = newWebBackend(c)

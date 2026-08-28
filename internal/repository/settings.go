@@ -32,7 +32,7 @@ func (r *SettingsRepository) Get() (*model.Settings, error) {
 	var webdavEnabled, webdavReadonly sql.NullBool
 	var webdavUsername, webdavPassword sql.NullString
 	err := r.db.QueryRow(`
-		SELECT id, account, password, cookie, COALESCE(admin_password_hash, '') as admin_password_hash, refresh_token, COALESCE(access_token, '') as access_token, root_folder_id, site_title, site_logo,
+		SELECT id, account, password, cookie, COALESCE(admin_password_hash, '') as admin_password_hash, COALESCE(admin_token_version, 0) as admin_token_version, refresh_token, COALESCE(access_token, '') as access_token, root_folder_id, site_title, site_logo,
 			   COALESCE(login_title, 'TyOpen_Auth_v10.exe') as login_title,
 			   COALESCE(login_avatar, '💀') as login_avatar,
 			   COALESCE(login_role_tag, 'ROLE: ADMIN') as login_role_tag,
@@ -70,6 +70,7 @@ func (r *SettingsRepository) Get() (*model.Settings, error) {
 		&settings.Password,
 		&settings.Cookie,
 		&settings.AdminPasswordHash,
+		&settings.AdminTokenVersion,
 		&settings.RefreshToken,
 		&accessToken,
 		&settings.RootFolderID,
@@ -333,13 +334,63 @@ func (r *SettingsRepository) GetAccessToken() (string, error) {
 	return "", err
 }
 
-// UpdateAdminPasswordHash 更新管理员密码哈希
+// UpdateAdminPasswordHash 更新管理员密码哈希并撤销已有会话（兼容旧调用方）。
 func (r *SettingsRepository) UpdateAdminPasswordHash(hash string) error {
-	_, err := r.db.Exec(`
-		UPDATE settings SET
-			admin_password_hash = ?,
-			updated_at = ?
-		WHERE id = 1
-	`, hash, time.Now())
+	_, err := r.UpdateAdminPasswordHashAndBump(hash)
 	return err
+}
+
+// UpdateAdminPasswordHashAndBump 在同一事务中更新密码哈希并递增会话版本。
+// 密码修改成功后，所有旧管理 JWT/WebDAV Bearer Token 立即失效。
+func (r *SettingsRepository) UpdateAdminPasswordHashAndBump(hash string) (int64, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(`
+		UPDATE settings
+		SET admin_password_hash = ?,
+		    admin_token_version = COALESCE(admin_token_version, 0) + 1,
+		    updated_at = ?
+		WHERE id = 1
+	`, hash, time.Now()); err != nil {
+		return 0, err
+	}
+
+	var version int64
+	if err := tx.QueryRow(`SELECT admin_token_version FROM settings WHERE id = 1`).Scan(&version); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return version, nil
+}
+
+// BumpAdminTokenVersion 递增管理员会话版本，使现有 JWT/WebDAV Bearer Token 失效。
+func (r *SettingsRepository) BumpAdminTokenVersion() (int64, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(`
+		UPDATE settings
+		SET admin_token_version = COALESCE(admin_token_version, 0) + 1,
+		    updated_at = ?
+		WHERE id = 1
+	`, time.Now()); err != nil {
+		return 0, err
+	}
+	var version int64
+	if err := tx.QueryRow(`SELECT admin_token_version FROM settings WHERE id = 1`).Scan(&version); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return version, nil
 }

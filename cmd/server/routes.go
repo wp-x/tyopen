@@ -46,8 +46,17 @@ func registerPublicRoutes(r *gin.Engine, h *handler.Handler, dist distInfo) {
 }
 
 func registerShareRoutes(r *gin.Engine, h *handler.Handler, dist distInfo) {
+	publicLimit := func(operation string) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			if !h.RequirePublicShareRequest(c, operation) {
+				return
+			}
+			c.Next()
+		}
+	}
+
 	// 分享访问
-	r.GET("/s/:code", func(c *gin.Context) {
+	r.GET("/s/:code", publicLimit("view"), func(c *gin.Context) {
 		// 同一 URL 按 Accept 分流 HTML/JSON：禁止缓存，否则浏览器/CDN 会把
 		// 缓存的 HTML 喂给 XHR，前端表现为「链接失效或不存在」
 		c.Header("Vary", "Accept")
@@ -58,14 +67,14 @@ func registerShareRoutes(r *gin.Engine, h *handler.Handler, dist distInfo) {
 		}
 		h.AccessShare(c)
 	})
-	r.POST("/s/:code/verify", h.VerifySharePassword)
-	r.GET("/s/:code/download", h.DownloadShare)
-	r.GET("/s/:code/download/:fileId", h.DownloadShare)
-	r.GET("/s/:code/preview", h.PreviewShare)
-	r.GET("/s/:code/preview/:fileId", h.PreviewShare)
-	r.GET("/s/:code/content", h.GetShareFileContent)
-	r.GET("/s/:code/files", h.GetShareFiles)
-	r.GET("/s/:code/info", h.GetFilePreviewInfo)
+	r.POST("/s/:code/verify", publicLimit("verify"), h.VerifySharePassword)
+	r.GET("/s/:code/download", publicLimit("download"), h.DownloadShare)
+	r.GET("/s/:code/download/:fileId", publicLimit("download"), h.DownloadShare)
+	r.GET("/s/:code/preview", publicLimit("preview"), h.PreviewShare)
+	r.GET("/s/:code/preview/:fileId", publicLimit("preview"), h.PreviewShare)
+	r.GET("/s/:code/content", publicLimit("content"), h.GetShareFileContent)
+	r.GET("/s/:code/files", publicLimit("files"), h.GetShareFiles)
+	r.GET("/s/:code/info", publicLimit("info"), h.GetFilePreviewInfo)
 
 	// 直连（图床/视频床/文件床）入口，稳定 URL 可直接嵌入 <img>/<video>/Markdown
 	r.GET("/f/:code", h.DirectLink)
@@ -87,9 +96,7 @@ func registerAdminRoutes(r *gin.Engine, h *handler.Handler) {
 
 func registerAuthRoutes(auth *gin.RouterGroup, h *handler.Handler) {
 	auth.GET("/auth/me", h.GetMe)
-	auth.POST("/auth/logout", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"code": 0, "message": "已登出"})
-	})
+	auth.POST("/auth/logout", h.Logout)
 }
 
 func registerFileRoutes(auth *gin.RouterGroup, h *handler.Handler) {

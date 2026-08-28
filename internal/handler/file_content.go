@@ -67,7 +67,7 @@ func (h *Handler) GetShareFileContent(c *gin.Context) {
 	}
 
 	// 校验 fid 归属（防 IDOR）
-	fileID, ok := h.resolveShareFileID(share, fileID)
+	fileID, ok := h.resolveShareFileID(c.Request.Context(), share, fileID)
 	if !ok {
 		writeFileContentError(c, http.StatusNotFound, "分享不存在或已失效")
 		return
@@ -83,7 +83,7 @@ func (h *Handler) GetShareFileContent(c *gin.Context) {
 }
 
 func (h *Handler) loadFileContent(ctx context.Context, fileID string) ([]byte, error) {
-	downloadURL, err := h.panClient.GetDownloadURL(fileID)
+	downloadURL, err := h.panClient.GetDownloadURLContext(ctx, fileID)
 	if err != nil {
 		return nil, fmt.Errorf("获取下载链接失败: %w", err)
 	}
