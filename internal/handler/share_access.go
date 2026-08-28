@@ -223,3 +223,15 @@ func (h *Handler) resolveShareFileID(ctx context.Context, share *model.Share, fi
 	}
 	return "", false
 }
+
+// shareContentFileID 拒绝把文件夹分享的根目录当作文件下载或预览。
+// 文件夹分享必须显式指定子文件 fid；单文件分享仍兼容省略 fid。
+func shareContentFileID(share *model.Share, fileID string) (string, bool) {
+	if share.TargetType == "folder" && (fileID == "" || fileID == "0" || fileID == share.TargetID) {
+		return "", false
+	}
+	if fileID == "" || fileID == "0" {
+		return share.TargetID, true
+	}
+	return fileID, true
+}

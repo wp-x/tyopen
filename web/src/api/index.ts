@@ -199,9 +199,10 @@ export const publicApi = {
         const qs = params.toString()
         return `/s/${code}/download${qs ? '?' + qs : ''}`
     },
-    getPreviewUrl: (code: string, fileId?: string) => {
+    getPreviewUrl: (code: string, fileId?: string, inline = false) => {
         const params = new URLSearchParams()
         if (fileId) params.set('fid', fileId)
+        if (inline) params.set('inline', '1')
         const qs = params.toString()
         return `/s/${code}/preview${qs ? '?' + qs : ''}`
     },

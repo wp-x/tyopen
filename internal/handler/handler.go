@@ -57,6 +57,7 @@ type Handler struct {
 	monitorService      MonitorServiceInterface
 	listCache           ListCache
 	httpClient          HTTPDoer
+	pdfHTTPClient       HTTPDoer
 	directCache         DirectURLCache
 	directLimiter       *directRateLimiter
 	loginLimiter        *loginFailureLimiter
@@ -113,6 +114,7 @@ func NewHandler(opts HandlerOptions) *Handler {
 		proxyTrust:          newProxyTrust(opts.TrustedProxies),
 		listCache:           opts.ListCache,
 		httpClient:          httpClient,
+		pdfHTTPClient:       newPDFPreviewHTTPClient(),
 		directCache:         NewDirectURLCache(DefaultDirectURLCacheTTL),
 		directLimiter:       newDirectRateLimiter(),
 		loginLimiter:        newLoginFailureLimiter(),
@@ -1077,8 +1079,11 @@ func (h *Handler) DownloadShare(c *gin.Context) {
 	}
 
 	// 校验 fid 归属：单文件分享只能访问 target_id，
-	// 文件夹分享 fid 必须是 target_id 或其后代（防 IDOR）
-	fileID, ok := h.resolveShareFileID(c.Request.Context(), share, fileID)
+	// 文件夹分享必须显式指定子文件，且 fid 必须属于其子树（防 IDOR）。
+	fileID, ok := shareContentFileID(share, fileID)
+	if ok {
+		fileID, ok = h.resolveShareFileID(c.Request.Context(), share, fileID)
+	}
 	if !ok {
 		c.JSON(http.StatusNotFound, model.APIResponse{
 			Code:    404,
@@ -2046,14 +2051,30 @@ func (h *Handler) PreviewShare(c *gin.Context) {
 		return
 	}
 
-	// 校验 fid 归属（防 IDOR）
-	fileID, ok := h.resolveShareFileID(c.Request.Context(), share, fileID)
+	// 校验 fid 归属；文件夹分享必须显式指定子文件（防 IDOR）。
+	fileID, ok := shareContentFileID(share, fileID)
+	if ok {
+		fileID, ok = h.resolveShareFileID(c.Request.Context(), share, fileID)
+	}
 	if !ok {
 		c.JSON(http.StatusNotFound, model.APIResponse{
 			Code:    404,
 			Message: "分享不存在或已失效",
 		})
 		return
+	}
+
+	inlinePDF := c.Query("inline") == "1"
+	if inlinePDF {
+		if share.MaxDownloads > 0 && share.DownloadCount >= share.MaxDownloads {
+			c.JSON(http.StatusForbidden, model.APIResponse{Code: 403, Message: "下载次数已达上限"})
+			return
+		}
+		fileName, nameErr := h.panClient.GetFileNameContext(c.Request.Context(), fileID)
+		if nameErr != nil || !strings.EqualFold(filepath.Ext(fileName), ".pdf") {
+			c.JSON(http.StatusBadRequest, model.APIResponse{Code: 400, Message: "仅支持 PDF 内联预览"})
+			return
+		}
 	}
 
 	// 获取下载链接（预览也是相同链接）
@@ -2066,7 +2087,17 @@ func (h *Handler) PreviewShare(c *gin.Context) {
 		return
 	}
 
-	// 302重定向
+	// 天翼下载直链强制 attachment；PDF 预览需由本站代理并改为 inline。
+	if inlinePDF {
+		if !validCloudDownloadURL(downloadURL) {
+			c.JSON(http.StatusBadGateway, model.APIResponse{Code: 502, Message: "PDF 预览地址不受信任"})
+			return
+		}
+		proxyInlinePDF(c, h.pdfHTTPClient, downloadURL)
+		return
+	}
+
+	// 普通预览和下载保持 302，避免不必要地消耗本站带宽。
 	c.Redirect(http.StatusFound, downloadURL)
 }
 
@@ -2106,7 +2137,7 @@ func (h *Handler) GetFilePreviewInfo(c *gin.Context) {
 		return
 	}
 
-	// 校验 fid 归属（防 IDOR）
+	// 元数据接口保留文件夹根目录的兼容行为；仅实际内容入口拒绝目录根节点。
 	fileID, ok := h.resolveShareFileID(c.Request.Context(), share, fileID)
 	if !ok {
 		c.JSON(http.StatusNotFound, model.APIResponse{

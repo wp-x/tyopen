@@ -214,7 +214,7 @@
             <!-- 简单的实时时钟 -->
             <div class="time-code">{{ videoTimeCode }}</div>
             <div>
-                <button class="btn-brutal" @click="downloadFile" style="padding: 5px 15px; font-size: 12px;">下载原片</button>
+                <button class="btn-brutal" @click="downloadPreviewFile" style="padding: 5px 15px; font-size: 12px;">下载原片</button>
             </div>
         </div>
       </div>
@@ -241,7 +241,7 @@
         </div>
         <div style="padding: 10px; background: white; display:flex; gap:10px;">
              <button class="btn-brutal" style="width:100%; background: white; color: black; border: 2px solid black;" @click="openExternal(previewUrl)">全屏查看</button>
-             <button class="btn-brutal" style="width:100%; background: var(--acid-green); color: black;" @click="downloadFile">下载图片</button>
+             <button class="btn-brutal" style="width:100%; background: var(--acid-green); color: black;" @click="downloadPreviewFile">下载图片</button>
         </div>
       </div>
 
@@ -325,6 +325,7 @@ async function loadSiteConfig() {
 const showPreview = ref(false)
 const previewType = ref('none')
 const previewFileName = ref('')
+const previewFileId = ref<string>()
 const previewUrl = ref('')
 const previewError = ref(false)
 const textContent = ref('')
@@ -354,6 +355,7 @@ function onImageLoad(e: Event) {
 
 function closePreview() {
   showPreview.value = false
+  previewFileId.value = undefined
   previewUrl.value = ''
   textContent.value = ''
   textLoading.value = false
@@ -459,6 +461,12 @@ function downloadFile() {
   openExternal(url)
 }
 
+function downloadPreviewFile() {
+  uiStore.showToast('success', '下载已开始', '数据传输请求已发送...')
+  const url = publicApi.getDownloadUrl(code, previewFileId.value)
+  openExternal(url)
+}
+
 async function loadFolderFiles(dirId?: string) {
   loadingFiles.value = true
   try {
@@ -518,20 +526,21 @@ function previewFolderFile(file: any) {
   previewError.value = false
   textContent.value = ''
   const fileId = file.fid || file.id
-  previewUrl.value = publicApi.getPreviewUrl(code, fileId)
-  
+  previewFileId.value = fileId
+
   const ext = file.name.split('.').pop()?.toLowerCase() || ''
   const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp']
   const videoExts = ['mp4', 'webm']
   const audioExts = ['mp3', 'wav']
   const textExts = ['txt', 'md', 'json', 'xml', 'yaml', 'yml', 'log']
-  
+
   if (imageExts.includes(ext)) previewType.value = 'image'
   else if (videoExts.includes(ext)) previewType.value = 'video'
   else if (audioExts.includes(ext)) previewType.value = 'audio'
   else if (textExts.includes(ext)) previewType.value = 'text'
   else if (ext === 'pdf') previewType.value = 'pdf'
 
+  previewUrl.value = publicApi.getPreviewUrl(code, fileId, previewType.value === 'pdf')
   if (previewType.value === 'text') {
     loadTextContent(fileId)
   }
@@ -575,7 +584,8 @@ function formatSize(bytes: number): string {
 watch(showPreview, (val) => {
   if (val && shareInfo.value?.target_type !== 'folder') {
     previewFileName.value = shareInfo.value?.target_name || ''
-    previewUrl.value = publicApi.getPreviewUrl(code)
+    previewFileId.value = undefined
+    previewUrl.value = publicApi.getPreviewUrl(code, undefined, previewType.value === 'pdf')
     previewError.value = false
     if (previewType.value === 'text') {
       loadTextContent()

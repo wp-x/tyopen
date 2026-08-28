@@ -132,6 +132,14 @@ func (c *Client) GetDownloadURLContext(ctx context.Context, fileID string) (stri
 	return c.activeBackend().getDownloadURL(ctx, fileID)
 }
 
+// GetFileNameContext 获取云盘中的真实文件名，用于服务端校验文件类型。
+func (c *Client) GetFileNameContext(ctx context.Context, fileID string) (string, error) {
+	if err := c.requireInitialized(); err != nil {
+		return "", err
+	}
+	return c.activeBackend().getFileName(ctx, fileID)
+}
+
 func (b *pcBackend) getDownloadURL(ctx context.Context, fileID string) (string, error) {
 	c := b.c
 	body, err := c.request(ctx, http.MethodGet, apiURL+"/getFileDownloadUrl.action",

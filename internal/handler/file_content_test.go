@@ -94,3 +94,102 @@ func TestWriteFileContentResponsePreservesArbitraryBytes(t *testing.T) {
 		t.Fatalf("字节内容不匹配: %v", decoded)
 	}
 }
+
+func TestProxyInlinePDFPreservesRangeAndForcesInline(t *testing.T) {
+	var upstreamRange, upstreamIfRange string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamRange = r.Header.Get("Range")
+		upstreamIfRange = r.Header.Get("If-Range")
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Range", "bytes 0-3/8")
+		w.Header().Set("Content-Disposition", "attachment; filename=file.pdf")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("%PDF"))
+	}))
+	defer server.Close()
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/preview", nil)
+	ctx.Request.Header.Set("Range", "bytes=0-3")
+	ctx.Request.Header.Set("If-Range", `"etag"`)
+
+	proxyInlinePDF(ctx, server.Client(), server.URL)
+
+	if upstreamRange != "bytes=0-3" || upstreamIfRange != `"etag"` {
+		t.Fatalf("范围头未完整转发: Range=%q If-Range=%q", upstreamRange, upstreamIfRange)
+	}
+	if recorder.Code != http.StatusPartialContent {
+		t.Fatalf("状态码 = %d, want %d", recorder.Code, http.StatusPartialContent)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/pdf" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := recorder.Header().Get("Content-Disposition"); got != "inline" {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if got := recorder.Header().Get("Content-Range"); got != "bytes 0-3/8" {
+		t.Fatalf("Content-Range = %q", got)
+	}
+	if recorder.Body.String() != "%PDF" {
+		t.Fatalf("响应内容 = %q", recorder.Body.String())
+	}
+}
+
+func TestProxyInlinePDFRejectsMultipleRangesBeforeUpstream(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer server.Close()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/preview", nil)
+	ctx.Request.Header.Set("Range", "bytes=0-1,4-5")
+	proxyInlinePDF(ctx, server.Client(), server.URL)
+
+	if recorder.Code != http.StatusRequestedRangeNotSatisfiable || called {
+		t.Fatalf("复数 Range 应在请求上游前拒绝: code=%d called=%v", recorder.Code, called)
+	}
+}
+
+func TestProxyInlinePDFPreservesUnsatisfiedRange(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Range", "bytes */8")
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+	}))
+	defer server.Close()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/preview", nil)
+	proxyInlinePDF(ctx, server.Client(), server.URL)
+
+	if recorder.Code != http.StatusRequestedRangeNotSatisfiable || recorder.Header().Get("Content-Range") != "bytes */8" {
+		t.Fatalf("416 未正确透传: code=%d range=%q", recorder.Code, recorder.Header().Get("Content-Range"))
+	}
+}
+
+func TestPDFResponseSizeAllowed(t *testing.T) {
+	if pdfResponseSizeAllowed(&http.Response{StatusCode: http.StatusOK, ContentLength: maxPDFPreviewBytes + 1}) {
+		t.Fatal("超大完整响应不应允许")
+	}
+	if pdfResponseSizeAllowed(&http.Response{StatusCode: http.StatusPartialContent, Header: http.Header{"Content-Range": {"bytes 0-3/104857601"}}}) {
+		t.Fatal("总大小超限的范围响应不应允许")
+	}
+}
+
+func TestValidCloudDownloadURL(t *testing.T) {
+	for _, rawURL := range []string{"https://a.ctyun.cn/file", "https://x.mini189.cn/file"} {
+		if !validCloudDownloadURL(rawURL) {
+			t.Fatalf("合法云盘地址被拒绝: %s", rawURL)
+		}
+	}
+	for _, rawURL := range []string{"http://a.ctyun.cn/file", "https://ctyun.cn.evil.test/file", "https://127.0.0.1/file"} {
+		if validCloudDownloadURL(rawURL) {
+			t.Fatalf("不可信地址被允许: %s", rawURL)
+		}
+	}
+}
