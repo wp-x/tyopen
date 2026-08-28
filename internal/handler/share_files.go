@@ -2,7 +2,7 @@ package handler
 
 import (
 	"errors"
-	"woopen/internal/model"
+	"tyopen/internal/model"
 )
 
 const (
@@ -17,7 +17,7 @@ func (h *Handler) listAllShareFiles(dirID string) ([]*model.FileInfo, error) {
 	page := shareListPageStart
 	files := make([]*model.FileInfo, 0, shareListPageSize)
 	for {
-		pageFiles, err := h.wopanClient.ListFiles(dirID, page, shareListPageSize)
+		pageFiles, err := h.panClient.ListFiles(dirID, page, shareListPageSize)
 		if err != nil {
 			return nil, err
 		}

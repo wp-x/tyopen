@@ -131,8 +131,12 @@ export const settingsApi = {
     update: (data: any) => api.put('/settings', data),
     updatePassword: (oldPassword: string, newPassword: string) =>
         api.put('/settings/password', { old_password: oldPassword, new_password: newPassword }),
-    testToken: (data: { refresh_token?: string; access_token?: string }) =>
-        api.post('/settings/token/test', data)
+    testToken: (data: { account?: string; password?: string; cookie?: string }) =>
+        api.post('/settings/token/test', data),
+    loginStart: (data: { account?: string; password?: string }) =>
+        api.post('/settings/cloud/login/start', data),
+    loginSms: (data: { ticket: string; code: string }) =>
+        api.post('/settings/cloud/login/sms', data)
 }
 
 // 监控API
@@ -177,10 +181,9 @@ export const publicApi = {
     access: (code: string) => axios.get(`/s/${code}`).then(res => res.data),
     verify: (code: string, password: string) =>
         axios.post(`/s/${code}/verify`, { password }).then(res => res.data),
-    getFiles: (code: string, dirId?: string, pwd?: string) => {
+    getFiles: (code: string, dirId?: string) => {
         const params: any = {}
         if (dirId) params.dir_id = dirId
-        if (pwd) params.pwd = pwd
         return axios.get(`/s/${code}/files`, { params }).then(res => res.data)
     },
     getPreviewInfo: (code: string, fileId?: string) => {
@@ -188,25 +191,23 @@ export const publicApi = {
         if (fileId) params.file_id = fileId
         return axios.get(`/s/${code}/info`, { params }).then(res => res.data)
     },
-    // fid 是 base64 形态、可能含 '/'，放路径段会破坏路由，必须走 query
-    getDownloadUrl: (code: string, fileId?: string, pwd?: string) => {
+    // fid 是 base64 形态、可能含 '/'，放路径段会破坏路由，必须走 query。
+    // 分享密码在 verify 后由后端写入 HttpOnly cookie，这里不再拼 pwd（避免落日志）。
+    getDownloadUrl: (code: string, fileId?: string) => {
         const params = new URLSearchParams()
         if (fileId) params.set('fid', fileId)
-        if (pwd) params.set('pwd', pwd)
         const qs = params.toString()
         return `/s/${code}/download${qs ? '?' + qs : ''}`
     },
-    getPreviewUrl: (code: string, fileId?: string, pwd?: string) => {
+    getPreviewUrl: (code: string, fileId?: string) => {
         const params = new URLSearchParams()
         if (fileId) params.set('fid', fileId)
-        if (pwd) params.set('pwd', pwd)
         const qs = params.toString()
         return `/s/${code}/preview${qs ? '?' + qs : ''}`
     },
-    getTextContent: (code: string, fileId?: string, pwd?: string) => {
+    getTextContent: (code: string, fileId?: string) => {
         const params: Record<string, string> = {}
         if (fileId) params.fid = fileId
-        if (pwd) params.pwd = pwd
         params.request_nonce = String(Date.now())
         return axios.get(`/s/${code}/content`, { params }).then(res => res.data)
     }

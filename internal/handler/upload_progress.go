@@ -4,12 +4,12 @@ import (
 	"net/http"
 	"sync"
 	"time"
-	"woopen/internal/model"
+	"tyopen/internal/model"
 
 	"github.com/gin-gonic/gin"
 )
 
-// uploadProgressEntry tracks server-side (server->wopan) progress for one upload.
+// uploadProgressEntry tracks server-side (server->cloud189) progress for one upload.
 // It is intentionally kept in-memory (best-effort) to avoid adding persistence.
 type uploadProgressEntry struct {
 	mu        sync.Mutex

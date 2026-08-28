@@ -3,7 +3,7 @@ package repository
 import (
 	"database/sql"
 	"time"
-	"woopen/internal/model"
+	"tyopen/internal/model"
 )
 
 // ShareRepository 分享仓库

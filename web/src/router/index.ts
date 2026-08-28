@@ -67,7 +67,7 @@ const router = createRouter({
 // 路由守卫 - 延迟导入 store 避免循环依赖
 router.beforeEach(async (to, _from, next) => {
     // 设置页面标题
-    document.title = to.meta.title ? `${to.meta.title} - WoOpen` : 'WoOpen'
+    document.title = to.meta.title ? `${to.meta.title} - TyOpen` : 'TyOpen'
 
     // 检查是否需要认证
     if (to.meta.requiresAuth) {

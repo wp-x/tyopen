@@ -6,16 +6,16 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"woopen/internal/model"
-	"woopen/internal/repository"
-	"woopen/internal/wopan"
+	"tyopen/internal/cloud189"
+	"tyopen/internal/model"
+	"tyopen/internal/repository"
 )
 
 // MonitorService 账号监控服务
 type MonitorService struct {
 	settingsRepo *repository.SettingsRepository
 	monitorRepo  *repository.MonitorRepository
-	wopanClient  *wopan.Client
+	panClient    *cloud189.Client
 	notifier     *Notifier
 
 	mu           sync.RWMutex
@@ -29,13 +29,13 @@ type MonitorService struct {
 func NewMonitorService(
 	settingsRepo *repository.SettingsRepository,
 	monitorRepo *repository.MonitorRepository,
-	wopanClient *wopan.Client,
+	panClient *cloud189.Client,
 	notifier *Notifier,
 ) *MonitorService {
 	return &MonitorService{
 		settingsRepo: settingsRepo,
 		monitorRepo:  monitorRepo,
-		wopanClient:  wopanClient,
+		panClient:    panClient,
 		notifier:     notifier,
 		interval:     5 * time.Minute, // 默认5分钟
 	}
@@ -87,11 +87,11 @@ func (m *MonitorService) SetInterval(seconds int) {
 	m.interval = time.Duration(seconds) * time.Second
 }
 
-// SetWopanClient 更新 WoPan 客户端
-func (m *MonitorService) SetWopanClient(client *wopan.Client) {
+// SetPanClient 更新云盘客户端
+func (m *MonitorService) SetPanClient(client *cloud189.Client) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.wopanClient = client
+	m.panClient = client
 }
 
 // run 监控主循环
@@ -116,7 +116,7 @@ func (m *MonitorService) run() {
 // check 执行一次检查
 func (m *MonitorService) check() {
 	m.mu.RLock()
-	client := m.wopanClient
+	client := m.panClient
 	m.mu.RUnlock()
 
 	if client == nil || !client.IsInitialized() {
@@ -200,7 +200,7 @@ func (m *MonitorService) check() {
 }
 
 // validateToken 验证 Token 有效性（带重试机制）
-func (m *MonitorService) validateToken(client *wopan.Client) error {
+func (m *MonitorService) validateToken(client *cloud189.Client) error {
 	maxRetries := 2
 	retryDelay := 2 * time.Second
 
@@ -240,13 +240,12 @@ func isTokenInvalidError(err error) bool {
 		return false
 	}
 	msg := err.Error()
-	// 只有明确的 Token 失效错误码才判定为失效
-	return strings.Contains(msg, "rsp_code: 8005") ||
-		strings.Contains(msg, "rsp_code: 1001") ||
+	// 只有明确的登录/会话失效错误才判定为失效
+	return strings.Contains(msg, "UserInvalidOpenToken") ||
 		strings.Contains(msg, "登录失败") ||
-		strings.Contains(msg, "无效的令牌") ||
-		strings.Contains(msg, "token已过期") ||
-		strings.Contains(msg, "token invalid")
+		strings.Contains(msg, "验证码") ||
+		strings.Contains(msg, "InvalidSessionKey") ||
+		strings.Contains(msg, "userSessionBO")
 }
 
 // CheckNow 立即执行一次检查

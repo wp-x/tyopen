@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// wopanFile 实现 webdav.File 接口（文件）
-type wopanFile struct {
-	fs       *WopanFS
+// cloud189File 实现 webdav.File 接口（文件）
+type cloud189File struct {
+	fs       *Cloud189FS
 	name     string
 	fileID   string
 	parentID string
@@ -37,7 +37,7 @@ type wopanFile struct {
 }
 
 // Close 关闭文件
-func (f *wopanFile) Close() error {
+func (f *cloud189File) Close() error {
 	var closeErr error
 	if f.reader != nil {
 		closeErr = f.reader.Close()
@@ -68,7 +68,7 @@ func (f *wopanFile) Close() error {
 }
 
 // Read 读取文件内容
-func (f *wopanFile) Read(p []byte) (n int, err error) {
+func (f *cloud189File) Read(p []byte) (n int, err error) {
 	if f.reader == nil {
 		// 获取下载链接并创建 reader（走缓存 + singleflight）
 		downloadURL, err := f.fs.DownloadURL(f.fileID)
@@ -104,7 +104,7 @@ func (f *wopanFile) Read(p []byte) (n int, err error) {
 }
 
 // Write 写入文件内容
-func (f *wopanFile) Write(p []byte) (n int, err error) {
+func (f *cloud189File) Write(p []byte) (n int, err error) {
 	if err := f.initTmp(); err != nil {
 		return 0, err
 	}
@@ -114,7 +114,7 @@ func (f *wopanFile) Write(p []byte) (n int, err error) {
 }
 
 // Seek 移动文件指针
-func (f *wopanFile) Seek(offset int64, whence int) (int64, error) {
+func (f *cloud189File) Seek(offset int64, whence int) (int64, error) {
 	// Read seek: adjust range position and reopen reader on next Read.
 	// Write seek is not supported; most WebDAV clients do sequential writes.
 	if f.tmp != nil {
@@ -146,12 +146,12 @@ func (f *wopanFile) Seek(offset int64, whence int) (int64, error) {
 }
 
 // Readdir 读取目录内容（文件不支持）
-func (f *wopanFile) Readdir(count int) ([]os.FileInfo, error) {
+func (f *cloud189File) Readdir(count int) ([]os.FileInfo, error) {
 	return nil, os.ErrInvalid
 }
 
 // Stat 获取文件信息
-func (f *wopanFile) Stat() (os.FileInfo, error) {
+func (f *cloud189File) Stat() (os.FileInfo, error) {
 	if f.fileInfo != nil {
 		return f.fileInfo, nil
 	}
@@ -171,7 +171,7 @@ func (f *wopanFile) Stat() (os.FileInfo, error) {
 }
 
 // upload 上传文件到云盘
-func (f *wopanFile) upload() error {
+func (f *cloud189File) upload() error {
 	defer func() {
 		if f.tmp != nil {
 			_ = f.tmp.Close()
@@ -212,11 +212,11 @@ func (f *wopanFile) upload() error {
 	return nil
 }
 
-func (f *wopanFile) initTmp() error {
+func (f *cloud189File) initTmp() error {
 	if f.tmp != nil {
 		return nil
 	}
-	tmp, err := os.CreateTemp("", "woopen-webdav-*"+filepath.Ext(f.fileName))
+	tmp, err := os.CreateTemp("", "tyopen-webdav-*"+filepath.Ext(f.fileName))
 	if err != nil {
 		return err
 	}
@@ -225,8 +225,8 @@ func (f *wopanFile) initTmp() error {
 	return nil
 }
 
-// wopanDir 实现 webdav.File 接口（目录）
-type wopanDir struct {
+// cloud189Dir 实现 webdav.File 接口（目录）
+type cloud189Dir struct {
 	name     string
 	modTime  time.Time
 	files    []os.FileInfo
@@ -234,22 +234,22 @@ type wopanDir struct {
 }
 
 // Close 关闭目录
-func (d *wopanDir) Close() error {
+func (d *cloud189Dir) Close() error {
 	return nil
 }
 
 // Read 读取目录内容（目录不支持）
-func (d *wopanDir) Read(p []byte) (n int, err error) {
+func (d *cloud189Dir) Read(p []byte) (n int, err error) {
 	return 0, os.ErrInvalid
 }
 
 // Write 写入目录内容（目录不支持）
-func (d *wopanDir) Write(p []byte) (n int, err error) {
+func (d *cloud189Dir) Write(p []byte) (n int, err error) {
 	return 0, os.ErrInvalid
 }
 
 // Seek 移动目录指针
-func (d *wopanDir) Seek(offset int64, whence int) (int64, error) {
+func (d *cloud189Dir) Seek(offset int64, whence int) (int64, error) {
 	switch whence {
 	case io.SeekStart:
 		d.position = int(offset)
@@ -270,7 +270,7 @@ func (d *wopanDir) Seek(offset int64, whence int) (int64, error) {
 }
 
 // Readdir 读取目录内容
-func (d *wopanDir) Readdir(count int) ([]os.FileInfo, error) {
+func (d *cloud189Dir) Readdir(count int) ([]os.FileInfo, error) {
 	if d.position >= len(d.files) {
 		if count <= 0 {
 			return nil, nil
@@ -302,7 +302,7 @@ func (d *wopanDir) Readdir(count int) ([]os.FileInfo, error) {
 }
 
 // Stat 获取目录信息
-func (d *wopanDir) Stat() (os.FileInfo, error) {
+func (d *cloud189Dir) Stat() (os.FileInfo, error) {
 	modTime := d.modTime
 	if modTime.IsZero() {
 		modTime = time.Now()

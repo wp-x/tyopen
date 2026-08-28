@@ -304,7 +304,7 @@ const error = ref('')
 
 // 站点配置
 const siteConfig = ref({
-  share_footer: 'Powered by WOOPEN_OS // BRUTAL_EDITION'
+  share_footer: 'Powered by TYOPEN_OS // BRUTAL_EDITION'
 })
 
 // 加载站点配置
@@ -313,7 +313,7 @@ async function loadSiteConfig() {
     const res = await publicApi.getSiteConfig()
     if (res.code === 0 && res.data) {
       siteConfig.value = {
-        share_footer: res.data.share_footer || 'Powered by WOOPEN_OS // BRUTAL_EDITION'
+        share_footer: res.data.share_footer || 'Powered by TYOPEN_OS // BRUTAL_EDITION'
       }
     }
   } catch (error) {
@@ -455,14 +455,14 @@ function detectPreviewType() {
 
 function downloadFile() {
   uiStore.showToast('success', '下载已开始', '数据传输请求已发送...')
-  const url = publicApi.getDownloadUrl(code, undefined, needPassword.value ? password.value : undefined)
+  const url = publicApi.getDownloadUrl(code)
   openExternal(url)
 }
 
 async function loadFolderFiles(dirId?: string) {
   loadingFiles.value = true
   try {
-    const res = await publicApi.getFiles(code, dirId, needPassword.value ? password.value : undefined)
+    const res = await publicApi.getFiles(code, dirId)
     if (res.code === 0) {
       folderFiles.value = res.data.files || []
       currentFolderId.value = res.data.current_id
@@ -503,7 +503,7 @@ function handleFileClick(file: any) {
 function downloadFolderFile(file: any) {
   const fileId = file.fid || file.id
   uiStore.showToast('success', '下载已开始', '正在获取文件 [' + file.name + ']...')
-  const url = publicApi.getDownloadUrl(code, fileId, needPassword.value ? password.value : undefined)
+  const url = publicApi.getDownloadUrl(code, fileId)
   openExternal(url)
 }
 
@@ -518,7 +518,7 @@ function previewFolderFile(file: any) {
   previewError.value = false
   textContent.value = ''
   const fileId = file.fid || file.id
-  previewUrl.value = publicApi.getPreviewUrl(code, fileId, needPassword.value ? password.value : undefined)
+  previewUrl.value = publicApi.getPreviewUrl(code, fileId)
   
   const ext = file.name.split('.').pop()?.toLowerCase() || ''
   const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp']
@@ -575,7 +575,7 @@ function formatSize(bytes: number): string {
 watch(showPreview, (val) => {
   if (val && shareInfo.value?.target_type !== 'folder') {
     previewFileName.value = shareInfo.value?.target_name || ''
-    previewUrl.value = publicApi.getPreviewUrl(code, undefined, needPassword.value ? password.value : undefined)
+    previewUrl.value = publicApi.getPreviewUrl(code)
     previewError.value = false
     if (previewType.value === 'text') {
       loadTextContent()
@@ -586,7 +586,7 @@ watch(showPreview, (val) => {
 async function loadTextContent(fileId?: string) {
   textLoading.value = true
   try {
-    const res = await publicApi.getTextContent(code, fileId, needPassword.value ? password.value : undefined)
+    const res = await publicApi.getTextContent(code, fileId)
     textContent.value = decodeTextContent(res.data.content_base64)
   } catch {
     previewError.value = true

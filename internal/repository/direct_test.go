@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"woopen/internal/model"
+	"tyopen/internal/model"
 )
 
 // 验证迁移后的列顺序与 Scan 对齐：直连分享写入->读回，设置默认值。

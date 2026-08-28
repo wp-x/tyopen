@@ -17,17 +17,17 @@ type Config struct {
 // DefaultConfig 返回默认配置
 func DefaultConfig() *Config {
 	return &Config{
-		Port:          getEnv("WOOPEN_PORT", "10010"),
-		DataDir:       getEnv("WOOPEN_DATA_DIR", "./data"),
-		AdminPassword: getEnv("WOOPEN_ADMIN_PASSWORD", ""),
-		JWTSecret:     getEnv("WOOPEN_JWT_SECRET", ""),
-		SiteURL:       getEnv("WOOPEN_SITE_URL", "http://localhost:10010"),
+		Port:          getEnv("TYOPEN_PORT", "10010"),
+		DataDir:       getEnv("TYOPEN_DATA_DIR", "./data"),
+		AdminPassword: getEnv("TYOPEN_ADMIN_PASSWORD", ""),
+		JWTSecret:     getEnv("TYOPEN_JWT_SECRET", ""),
+		SiteURL:       getEnv("TYOPEN_SITE_URL", "http://localhost:10010"),
 	}
 }
 
 // DatabasePath 返回数据库文件路径
 func (c *Config) DatabasePath() string {
-	return filepath.Join(c.DataDir, "woopen.db")
+	return filepath.Join(c.DataDir, "tyopen.db")
 }
 
 // getEnv 获取环境变量，如果不存在则返回默认值

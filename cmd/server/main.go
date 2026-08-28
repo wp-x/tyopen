@@ -3,20 +3,20 @@ package main
 import (
 	"log"
 
-	"woopen/internal/config"
-	"woopen/internal/middleware"
-	"woopen/internal/repository"
-	"woopen/internal/wopan"
+	"tyopen/internal/cloud189"
+	"tyopen/internal/config"
+	"tyopen/internal/middleware"
+	"tyopen/internal/repository"
 )
 
 func main() {
 	// 加载配置
 	cfg := config.DefaultConfig()
 	if len(cfg.AdminPassword) < 12 {
-		log.Fatal("WOOPEN_ADMIN_PASSWORD 未配置或长度不足 12 位")
+		log.Fatal("TYOPEN_ADMIN_PASSWORD 未配置或长度不足 12 位")
 	}
 	if len(cfg.JWTSecret) < 32 {
-		log.Fatal("WOOPEN_JWT_SECRET 未配置或长度不足 32 位")
+		log.Fatal("TYOPEN_JWT_SECRET 未配置或长度不足 32 位")
 	}
 	logStartup(cfg)
 
@@ -31,37 +31,43 @@ func main() {
 	defer db.Close()
 
 	repos := initRepositories(db)
-	wopanClient := initWopanClient(repos.settings)
-	h := initHandler(repos, wopanClient, cfg.AdminPassword)
-	monitorService := initMonitorService(repos, wopanClient, h)
+	panClient := initCloud189Client(repos.settings)
+	h := initHandler(repos, panClient, cfg.AdminPassword, cfg.JWTSecret)
+	monitorService := initMonitorService(repos, panClient, h)
 	maybeStartMonitor(repos.settings, monitorService)
 
 	r := setupRouter(routeOptions{
 		handler: h,
 	})
-	davHandler := newWebDAVHandler(wopanClient, repos.settings, cfg.AdminPassword)
+	davHandler := newWebDAVHandler(panClient, repos.settings, h.VerifyAdminPassword)
 	startHTTPServer(r, davHandler, cfg.Port)
 }
 
-// initWopanClient 初始化云盘客户端
-func initWopanClient(settingsRepo *repository.SettingsRepository) *wopan.Client {
+// initCloud189Client 初始化电信云盘客户端
+func initCloud189Client(settingsRepo *repository.SettingsRepository) *cloud189.Client {
 	settings, err := settingsRepo.Get()
 	if err != nil {
 		log.Printf("获取设置失败: %v", err)
-		return wopan.NewClient("")
+		return cloud189.NewClient("", "")
 	}
 
-	if settings.RefreshToken == "" && settings.AccessToken == "" {
-		log.Println("未配置 refresh_token 或 access_token，请在管理后台配置")
-		return wopan.NewClient("")
+	if settings.Cookie == "" && (settings.Account == "" || settings.Password == "") {
+		log.Println("未配置电信云盘凭据（Cookie 或账号密码），请在管理后台配置")
+		return cloud189.NewClient("", "")
 	}
 
-	client := wopan.NewClient(settings.RefreshToken)
+	client := cloud189.NewClient(settings.Account, settings.Password)
 	client.SetRootFolderID(settings.RootFolderID)
 
-	// AccessToken 可选；提供后可减少首次刷新
-	if settings.AccessToken != "" {
-		client.SetAccessToken(settings.AccessToken)
+	// 设置了 Cookie 时优先使用 Cookie 会话模式
+	if settings.Cookie != "" {
+		client.SetCookie(settings.Cookie)
+		log.Println("使用 Cookie 会话模式连接天翼云盘")
+	}
+
+	// 用库里存的 token 预热，Init 时优先用 refreshToken 换 session
+	if settings.RefreshToken != "" || settings.AccessToken != "" {
+		client.SetTokens(settings.RefreshToken, settings.AccessToken)
 	}
 
 	// 设置Token更新回调
@@ -75,7 +81,7 @@ func initWopanClient(settingsRepo *repository.SettingsRepository) *wopan.Client 
 
 	// 初始化客户端（个人云模式）
 	if err := client.Init(); err != nil {
-		log.Printf("初始化云盘客户端失败: %v (请检查Token是否有效)", err)
+		log.Printf("初始化云盘客户端失败: %v (请检查账号密码是否正确)", err)
 		return client
 	}
 

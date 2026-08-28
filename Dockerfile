@@ -6,7 +6,7 @@ RUN apk add --no-cache gcc musl-dev
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=1 go build -o woopen ./cmd/server
+RUN CGO_ENABLED=1 go build -o tyopen ./cmd/server
 
 # Build stage - Vue frontend
 FROM node:20-alpine AS frontend-builder
@@ -24,7 +24,7 @@ RUN apk --no-cache add ca-certificates tzdata
 WORKDIR /app
 
 # Copy backend binary
-COPY --from=backend-builder /app/woopen .
+COPY --from=backend-builder /app/tyopen .
 # Copy frontend dist
 COPY --from=frontend-builder /app/dist ./web/dist
 
@@ -33,7 +33,7 @@ RUN mkdir -p /data
 
 EXPOSE 10010
 
-ENV WOOPEN_DATA_DIR=/data
-ENV WOOPEN_PORT=10010
+ENV TYOPEN_DATA_DIR=/data
+ENV TYOPEN_PORT=10010
 
-CMD ["./woopen"]
+CMD ["./tyopen"]

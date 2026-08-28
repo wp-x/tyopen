@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"woopen/internal/model"
+	"tyopen/internal/model"
 
 	"github.com/gin-gonic/gin"
 )
@@ -111,7 +111,7 @@ func (h *Handler) DirectLink(c *gin.Context) {
 	// 取直链：缓存优先，miss 才打上游并计一次引用
 	downloadURL, hit := h.directCache.Get(share.TargetID)
 	if !hit {
-		downloadURL, err = h.wopanClient.GetDownloadURL(share.TargetID)
+		downloadURL, err = h.panClient.GetDownloadURL(share.TargetID)
 		if err != nil {
 			h.directRejectWith(c, http.StatusBadGateway, "获取直链失败", true)
 			return

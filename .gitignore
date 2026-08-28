@@ -1,4 +1,5 @@
 # Binaries
+tyopen
 woopen
 /server
 main
@@ -6,10 +7,10 @@ test
 *.exe
 
 # Development Scripts
-start.sh
 
 # Logs
 *.log
+.env
 
 # Data & Database
 data/
@@ -35,11 +36,11 @@ Thumbs.db
 woopen-spec/
 
 # Development Documents (keep README.md)
-联通网盘的参数文档.md
 sdk_doc.txt
 *开发*.md
 *功能开发*.md
 *参数文档*.md
+!电信网盘的参数文档.md
 
 # Reference Files (not needed for production)
 参考皮肤/

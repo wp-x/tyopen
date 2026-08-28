@@ -16,7 +16,7 @@ import (
 func TestFetchRemoteFileContent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("联通云盘文本内容\n第二行"))
+		_, _ = w.Write([]byte("电信云盘文本内容\n第二行"))
 	}))
 	defer server.Close()
 
@@ -24,7 +24,7 @@ func TestFetchRemoteFileContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取远程文本失败: %v", err)
 	}
-	if string(content) != "联通云盘文本内容\n第二行" {
+	if string(content) != "电信云盘文本内容\n第二行" {
 		t.Fatalf("文本内容不匹配: %q", content)
 	}
 }

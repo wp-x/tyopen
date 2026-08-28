@@ -93,11 +93,11 @@ const loginBtn = ref<HTMLButtonElement | null>(null)
 // 站点配置
 const siteConfig = ref({
   login_username: 'Administrator',
-  login_title: 'WoOpen_Auth_v10.exe',
+  login_title: 'TyOpen_Auth_v10.exe',
   login_avatar: '💀',
   login_role_tag: 'ROLE: ADMIN',
   login_level_tag: 'LEVEL: 99',
-  login_system_name: 'WOOPEN CLOUD SYSTEM'
+  login_system_name: 'TYOPEN CLOUD SYSTEM'
 })
 
 // 检测头像是否为 URL
@@ -108,7 +108,7 @@ const isAvatarUrl = computed(() => {
 
 // 格式化系统名称（用空格分隔换行）
 const formattedSystemName = computed(() => {
-  const name = siteConfig.value.login_system_name || 'WOOPEN CLOUD SYSTEM'
+  const name = siteConfig.value.login_system_name || 'TYOPEN CLOUD SYSTEM'
   return name.split(' ').join('\n')
 })
 
@@ -119,11 +119,11 @@ async function loadSiteConfig() {
     if (res.code === 0 && res.data) {
       siteConfig.value = {
         login_username: res.data.login_username || 'Administrator',
-        login_title: res.data.login_title || 'WoOpen_Auth_v10.exe',
+        login_title: res.data.login_title || 'TyOpen_Auth_v10.exe',
         login_avatar: res.data.login_avatar || '💀',
         login_role_tag: res.data.login_role_tag || 'ROLE: ADMIN',
         login_level_tag: res.data.login_level_tag || 'LEVEL: 99',
-        login_system_name: res.data.login_system_name || 'WOOPEN CLOUD SYSTEM'
+        login_system_name: res.data.login_system_name || 'TYOPEN CLOUD SYSTEM'
       }
     }
   } catch (error) {

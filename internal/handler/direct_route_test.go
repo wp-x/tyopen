@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"woopen/internal/model"
-	"woopen/internal/repository"
+	"tyopen/internal/model"
+	"tyopen/internal/repository"
 
 	"github.com/gin-gonic/gin"
 )

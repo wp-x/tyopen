@@ -14,12 +14,16 @@ type Token struct {
 
 // Settings 系统设置
 type Settings struct {
-	ID           int64  `json:"id"`
-	RefreshToken string `json:"refresh_token"`
-	AccessToken  string `json:"access_token"`   // Access Token（与 Refresh Token 配合使用）
-	RootFolderID string `json:"root_folder_id"` // 根文件夹ID，空为根目录
-	SiteTitle    string `json:"site_title"`
-	SiteLogo     string `json:"site_logo"`
+	ID                int64  `json:"id"`
+	Account           string `json:"account"`        // 电信云盘账号（手机号）
+	Password          string `json:"password"`       // 电信云盘密码
+	Cookie            string `json:"cookie"`         // 电信云盘网页版 Cookie（设置了则优先使用）
+	AdminPasswordHash string `json:"-"`              // 管理员密码 bcrypt 哈希（不对外暴露）
+	RefreshToken      string `json:"refresh_token"`  // 登录成功后由后端回填
+	AccessToken       string `json:"access_token"`   // Access Token（与 Refresh Token 配合使用）
+	RootFolderID      string `json:"root_folder_id"` // 根文件夹ID，空为根目录
+	SiteTitle         string `json:"site_title"`
+	SiteLogo          string `json:"site_logo"`
 	// 登录页自定义
 	LoginUsername   string `json:"login_username"`    // 登录页显示的用户名（可自定义）
 	LoginTitle      string `json:"login_title"`       // 登录窗口标题栏文字

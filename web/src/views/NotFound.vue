@@ -30,7 +30,7 @@
       </div>
       
       <div class="window-footer">
-        WOOPEN_OS // ERROR_HANDLER_v1
+        TYOPEN_OS // ERROR_HANDLER_v1
       </div>
     </div>
   </div>

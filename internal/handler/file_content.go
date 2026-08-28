@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"woopen/internal/model"
+	"tyopen/internal/model"
 
 	"github.com/gin-gonic/gin"
 )
@@ -56,7 +56,7 @@ func (h *Handler) GetShareFileContent(c *gin.Context) {
 	}
 
 	if share.Password != "" {
-		if c.Query("pwd") != share.Password {
+		if !h.sharePasswordGranted(c, share) {
 			if !h.checkSharePasswordAttempt(c) {
 				return
 			}
@@ -64,11 +64,13 @@ func (h *Handler) GetShareFileContent(c *gin.Context) {
 			writeFileContentError(c, http.StatusUnauthorized, "需要密码验证")
 			return
 		}
-		h.resetSharePasswordFailures(c)
 	}
 
-	if fileID == "" || fileID == "0" {
-		fileID = share.TargetID
+	// 校验 fid 归属（防 IDOR）
+	fileID, ok := h.resolveShareFileID(share, fileID)
+	if !ok {
+		writeFileContentError(c, http.StatusNotFound, "分享不存在或已失效")
+		return
 	}
 
 	content, err := h.loadFileContent(c.Request.Context(), fileID)
@@ -81,7 +83,7 @@ func (h *Handler) GetShareFileContent(c *gin.Context) {
 }
 
 func (h *Handler) loadFileContent(ctx context.Context, fileID string) ([]byte, error) {
-	downloadURL, err := h.wopanClient.GetDownloadURL(fileID)
+	downloadURL, err := h.panClient.GetDownloadURL(fileID)
 	if err != nil {
 		return nil, fmt.Errorf("获取下载链接失败: %w", err)
 	}

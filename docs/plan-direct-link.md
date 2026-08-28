@@ -5,11 +5,11 @@
 
 ## 背景与目标
 
-WoOpen 现有分享链路：`/s/{code}` → 分享页 → 点下载 → `DownloadShare`（`internal/handler/handler.go:705`）
-实时调联通 `GetDownloadUrlV2` 换临时签名 URL → `302` 重定向。
+TyOpen 现有分享链路：`/s/{code}` → 分享页 → 点下载 → `DownloadShare`（`internal/handler/handler.go:705`）
+实时调电信 `GetDownloadUrlV2` 换临时签名 URL → `302` 重定向。
 
 新增**直连模式**：一个稳定 URL `GET /f/{code}`，可直接嵌入 `<img>` / `<video>` / Markdown，
-访问时服务端换取联通临时直链并 302。带防盗链（Referer 白名单 + Sec-Fetch-Dest 判断）、
+访问时服务端换取电信临时直链并 302。带防盗链（Referer 白名单 + Sec-Fetch-Dest 判断）、
 IP 限速、直链缓存、占位图。
 
 **范围外（明确不做）**：签名 URL、服务端代理流量模式、独立图床页面。
@@ -39,12 +39,12 @@ IP 限速独立于上述规则，作为 Gin 中间件套在 `/f/:code` 路由上
 
 ---
 
-## 阶段 0：实测联通直链有效期（先做，决定缓存 TTL）
+## 阶段 0：实测电信直链有效期（先做，决定缓存 TTL）
 
-1. 用现有分享创建一个文件的下载链接，取得 302 后的联通 CDN URL。
+1. 用现有分享创建一个文件的下载链接，取得 302 后的电信 CDN URL。
 2. 写一个临时脚本（或手动 curl），在第 0/5/15/30/60/120 分钟各请求一次该 URL（HEAD 即可），记录何时开始返回 403/过期。
 3. 同时验证两件事并记录在下方：
-   - 联通 CDN URL 是否检查 Referer（带一个陌生 Referer 请求一次）
+   - 电信 CDN URL 是否检查 Referer（带一个陌生 Referer 请求一次）
    - 是否支持 `Range: bytes=0-1023` 请求（决定视频拖进度条是否可用）
 4. 将 `DirectURLCacheTTL` 设为实测有效期的 70%，向下取整到分钟。若实测有效期 < 3 分钟，TTL 设为 0（不缓存）。
 
@@ -54,7 +54,7 @@ IP 限速独立于上述规则，作为 Gin 中间件套在 `/f/:code` 路由上
 - Range 支持：是 / 否
 - 采用的缓存 TTL：____
 
-> 若实测发现联通 CDN 检查 Referer 导致 `<img>` 内嵌失败，停止执行本计划，回报此结论（需要改为代理模式，属范围外）。
+> 若实测发现电信 CDN 检查 Referer 导致 `<img>` 内嵌失败，停止执行本计划，回报此结论（需要改为代理模式，属范围外）。
 
 ---
 
@@ -97,7 +97,7 @@ DirectRejectPlaceholder bool   `json:"direct_reject_placeholder"`  // 拒绝时�
 - settings 的读写 SQL 加入四个新列。
 - 保持现有函数签名不变，只扩列。
 
-**验收**：`go build ./...` 通过；删除本地 `data/*.db` 后启动服务，表结构含新列（`sqlite3 data/woopen.db '.schema shares'` 验证）；旧库启动时 migration 不报错。
+**验收**：`go build ./...` 通过；删除本地 `data/*.db` 后启动服务，表结构含新列（`sqlite3 data/tyopen.db '.schema shares'` 验证）；旧库启动时 migration 不报错。
 
 ---
 
@@ -106,7 +106,7 @@ DirectRejectPlaceholder bool   `json:"direct_reject_placeholder"`  // 拒绝时�
 新建 `internal/handler/direct_cache.go`，完全仿照 `internal/handler/list_cache.go` 的 TTL 缓存模式：
 
 ```go
-// key: 联通文件ID(string) → value: {downloadURL string, expires time.Time}
+// key: 电信文件ID(string) → value: {downloadURL string, expires time.Time}
 // 接口：Get(fileID string) (string, bool) / Set(fileID string, url string)
 // TTL 常量 DefaultDirectURLCacheTTL 用阶段 0 的实测值；TTL<=0 时 Get 恒 miss
 ```
@@ -139,7 +139,7 @@ DirectRejectPlaceholder bool   `json:"direct_reject_placeholder"`  // 拒绝时�
    ```
    Referer 匹配：`url.Parse(referer)` 取 Hostname 小写，与白名单条目做
    `host == entry || strings.HasSuffix(host, "."+entry)`。Parse 失败按拒绝处理。
-4. 取直链：先查 `directCache`，miss 则 `h.wopanClient.GetDownloadURL(share.TargetID)` 并写缓存。
+4. 取直链：先查 `directCache`，miss 则 `h.panClient.GetDownloadURL(share.TargetID)` 并写缓存。
 5. 记录访问：`h.shareRepo.IncrementDownloadCount(share.ID)` 仅在**缓存 miss** 时调用
    （引用计数语义，避免同一页面多次加载灌水）；`accessLogRepo.Create` 的 Action 用 `"direct"`。
 6. `c.Redirect(http.StatusFound, downloadURL)`。
@@ -250,7 +250,7 @@ settings 四字段可读可写、重启后保留。
 
 - **不要改动** `DownloadShare` / `PreviewShare` / WebDAV 的任何现有逻辑，直连是纯新增路径。
 - 所有新增 Go 代码遵循项目现有风格（中文注释、gin 直接返回 `model.APIResponse`）。
-- 占位图/错误信息中不得包含内部错误详情（如联通 API 报错原文）。
+- 占位图/错误信息中不得包含内部错误详情（如电信 API 报错原文）。
 - commit 拆分建议：阶段 1+2 一个 commit（`feat: 直连数据层与直链缓存`），
   阶段 3+4 一个（`feat: 直连路由、防盗链与限速`），阶段 5 一个（`feat: 直连管理界面`）。
   不加任何 AI 署名。

@@ -3,7 +3,7 @@ package webdav
 import "sync"
 
 // singleGroup 是最小化的 singleflight：并发相同 key 的调用只执行一次 fn，
-// 其余调用等待并复用同一结果。避免 WebDAV 突发请求把联通 API 打爆。
+// 其余调用等待并复用同一结果。避免 WebDAV 突发请求把电信 API 打爆。
 // ponytail: 仅覆盖本包所需，无需引入 golang.org/x/sync。
 type singleGroup struct {
 	mu sync.Mutex

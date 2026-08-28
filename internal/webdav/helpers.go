@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 	"time"
-	"woopen/internal/model"
+	"tyopen/internal/model"
 
 	"golang.org/x/net/webdav"
 )
@@ -20,7 +20,7 @@ type createFileParams struct {
 }
 
 // createFile 创建新文件
-func (fs *WopanFS) createFile(ctx context.Context, params createFileParams) (webdav.File, error) {
+func (fs *Cloud189FS) createFile(ctx context.Context, params createFileParams) (webdav.File, error) {
 	cleanName := path.Clean(params.name)
 	if isIgnoredName(cleanName) {
 		return newNoopFile(cleanName), nil
@@ -36,7 +36,7 @@ func (fs *WopanFS) createFile(ctx context.Context, params createFileParams) (web
 		parentID = id
 	}
 
-	return &wopanFile{
+	return &cloud189File{
 		fs:       fs,
 		name:     cleanName,
 		parentID: parentID,
@@ -56,7 +56,7 @@ type openExistingFileParams struct {
 }
 
 // openExistingFile 打开已存在的文件
-func (fs *WopanFS) openExistingFile(params openExistingFileParams) (webdav.File, error) {
+func (fs *Cloud189FS) openExistingFile(params openExistingFileParams) (webdav.File, error) {
 	if params.info == nil {
 		return nil, os.ErrNotExist
 	}
@@ -69,7 +69,7 @@ func (fs *WopanFS) openExistingFile(params openExistingFileParams) (webdav.File,
 
 	// If opened for writing, implement overwrite by uploading a new file and deleting the old one.
 	if (params.flag&os.O_WRONLY) != 0 || (params.flag&os.O_RDWR) != 0 || (params.flag&os.O_TRUNC) != 0 {
-		return &wopanFile{
+		return &cloud189File{
 			fs:              fs,
 			name:            params.name,
 			fileID:          params.fileID,
@@ -82,7 +82,7 @@ func (fs *WopanFS) openExistingFile(params openExistingFileParams) (webdav.File,
 		}, nil
 	}
 
-	return &wopanFile{
+	return &cloud189File{
 		fs:       fs,
 		name:     params.name,
 		fileID:   params.fileID,
@@ -93,7 +93,7 @@ func (fs *WopanFS) openExistingFile(params openExistingFileParams) (webdav.File,
 }
 
 // openDirectory 打开目录
-func (fs *WopanFS) openDirectory(ctx context.Context, name string) (webdav.File, error) {
+func (fs *Cloud189FS) openDirectory(ctx context.Context, name string) (webdav.File, error) {
 	dirID, err := fs.getFileIDByPath(ctx, name)
 	if err != nil {
 		return nil, err
@@ -124,7 +124,7 @@ func (fs *WopanFS) openDirectory(ctx context.Context, name string) (webdav.File,
 		})
 	}
 
-	return &wopanDir{
+	return &cloud189Dir{
 		name:    name,
 		modTime: now,
 		files:   fileInfos,
@@ -132,14 +132,14 @@ func (fs *WopanFS) openDirectory(ctx context.Context, name string) (webdav.File,
 }
 
 // getFileMode 获取文件模式
-func (fs *WopanFS) getFileMode(f *model.FileInfo) os.FileMode {
+func (fs *Cloud189FS) getFileMode(f *model.FileInfo) os.FileMode {
 	if f.IsDir {
 		return os.ModeDir | 0755
 	}
 	return 0644
 }
 
-func (fs *WopanFS) fileInfoFromModel(info *model.FileInfo) os.FileInfo {
+func (fs *Cloud189FS) fileInfoFromModel(info *model.FileInfo) os.FileInfo {
 	if info == nil {
 		return nil
 	}

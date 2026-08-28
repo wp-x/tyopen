@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"woopen/internal/model"
-	"woopen/internal/repository"
+	"tyopen/internal/model"
+	"tyopen/internal/repository"
 )
 
 // Notifier 多渠道通知服务
@@ -109,7 +109,7 @@ func (n *Notifier) SendAll(config NotifyConfig, title, message string) {
 // TestAll 测试所有已配置的渠道
 func (n *Notifier) TestAll(config NotifyConfig) (results map[string]string) {
 	results = make(map[string]string)
-	title := "WoOpen 测试通知"
+	title := "TyOpen 测试通知"
 	message := "这是一条测试消息，如果您收到说明配置正确。\n时间: " + time.Now().Format("2006-01-02 15:04:05")
 
 	// Bark
@@ -220,7 +220,7 @@ func (n *Notifier) sendBark(barkURL, title, message string) error {
 		"title": title,
 		"body":  message,
 		"sound": "minuet",
-		"group": "WoOpen",
+		"group": "TyOpen",
 	}
 	jsonBody, _ := json.Marshal(payload)
 
@@ -566,7 +566,7 @@ func (n *Notifier) logNotification(channel, message, status, errMsg string) {
 
 // NotifyTokenInvalid 通知 Token 失效
 func (n *Notifier) NotifyTokenInvalid(config NotifyConfig, errorMsg string) {
-	title := "【WoOpen 告警】账号 Token 已失效"
+	title := "【TyOpen 告警】账号 Token 已失效"
 	message := fmt.Sprintf(`时间：%s
 原因：%s
 状态：自动刷新失败
@@ -577,7 +577,7 @@ func (n *Notifier) NotifyTokenInvalid(config NotifyConfig, errorMsg string) {
 
 // NotifyTokenRefreshed 通知 Token 刷新成功
 func (n *Notifier) NotifyTokenRefreshed(config NotifyConfig) {
-	title := "【WoOpen 通知】Token 已自动刷新"
+	title := "【TyOpen 通知】Token 已自动刷新"
 	message := fmt.Sprintf(`时间：%s
 状态：Token 已自动刷新成功`, time.Now().Format("2006-01-02 15:04:05"))
 	n.SendAll(config, title, message)

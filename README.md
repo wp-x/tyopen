@@ -1,22 +1,24 @@
-# WoOpen
+# TyOpen
 
-> 联通云盘直链分享工具。生成一个链接，别人点开就能下载，完事。
+> 电信天翼云盘直链分享工具。生成一个链接，别人点开就能下载，完事。
 
 <br>
 
-## 这玩意怎么来的
+## 简介
 
-我手上有个联通云盘会员，还有 11 年才到期，别问怎么来的，问就是一元一年买多。
+TyOpen 是一个基于电信天翼云盘（cloud.189.cn）的轻量直链分享工具：用云盘账号密码登录后，可以把云盘里的文件/文件夹生成分享链接，对方只能看到你分享的这一个文件，其他啥也看不到（类似于百度网盘的分享页）。
 
-平时根本用不上，放着吃灰又可惜。
+不想暴露完整文件列表，也不想要 Alist、Cloudreve 那样的「个人网盘站」，就一个诉求：发个链接，对方点开就能下载。
 
-想着能不能搞个工具分享文件给朋友？试了 Alist、Cloudreve 这些，感觉不太对。
+<br>
 
-我就一个联通云盘，用那些功能太多了，而且它们更像是「个人网盘站」，打开能看到文件列表和其他分享，我不想暴露这些，加密又太麻烦了。
+## 为什么做这个
 
-我的需求很简单：发个链接，对方只能看到我分享的这一个文件，其他啥也看不到（类似于百度网盘）。
+这是 [WoOpen](https://github.com/wp-x/woopen)（联通云盘版）的姊妹项目，核心思路完全一样：换底座，不换产品。
 
-所以就自己写了一个。
+当初做联通云盘版，是因为搞活动一口气买了 11 年联通云盘，不买都对不起那个价格。最近电信云盘要改规则，实体市场（卡商渠道）的价格已经在往下走，目测会出现一波好价——所以先把软件做好放着，等好价来了再入手账号慢慢用。
+
+两个项目的关系：同一套产品逻辑、同一套界面和功能，底层分别对接联通云盘（沃云盘）和电信天翼云盘，互不影响，按需选用。
 
 <br>
 
@@ -27,8 +29,10 @@
 | 直链分享 | 文件/文件夹生成分享链接 |
 | 访问控制 | 可以加密码、设过期时间、限制下载次数 |
 | 自定义短链 | 比如 `/s/movie` |
+| 文件管理 | 浏览、上传、新建目录、重命名、移动、删除 |
+| 挂载路径 | 可以把某个子目录设为根目录，只暴露该目录下的内容 |
 | 访问统计 | 后台能看访问量 |
-| 过期提醒 | Token 快过期会推送通知，支持 Bark、微信、Telegram 这些 |
+| 过期提醒 | 登录态快过期会推送通知，支持 Bark、微信、Telegram 等 |
 | 文件上传 | 通过 API 上传文件到云盘 |
 | WebDAV | 把云盘挂载成网络驱动器，像本地硬盘一样用 |
 
@@ -52,75 +56,13 @@
 
 ## 部署
 
-### 先拿到联通云盘的 Token
+### 方式一：本地构建（推荐）
 
-打开 https://pan.wo.cn/ 登录账号
-
-按 `F12` 打开开发者工具，切到「网络」标签，刷新页面
-
-找到带 `dispatcher` 的请求：
-
-点进去看响应，找到 `token` 字段，复制出来：
-
-![复制token](./docs/images/find-token.png)
-
-> 最新页面通常只显示一个 UUID 形式的 Token，它是 Access Token。
-
-<br>
-
-### 方式一：拉镜像（推荐）
-
-SSH 连上服务器：
+把仓库拉下来构建：
 
 ```bash
-mkdir -p /opt/woopen && cd /opt/woopen
-```
-
-创建 `docker-compose.yml`：
-
-```bash
-nano docker-compose.yml
-```
-
-粘贴以下内容，**密码记得改**：
-
-```yaml
-services:
-  woopen:
-    image: ghcr.io/wp-x/woopen:latest
-    container_name: woopen
-    ports:
-      - "10010:10010"
-    volumes:
-      - ./data:/data
-    environment:
-      - WOOPEN_ADMIN_PASSWORD=改成至少12位的登录密码
-      - WOOPEN_JWT_SECRET=改成至少32位的随机密钥
-      - WOOPEN_PORT=10010
-      - TZ=Asia/Shanghai
-    restart: unless-stopped
-```
-
-镜像同时支持 `linux/amd64` 和 `linux/arm64`，可用于常见的 x86_64 服务器及 ARM64 NAS/服务器。
-
-保存退出，启动：
-
-```bash
-docker compose up -d
-```
-
-浏览器打开 `http://服务器IP:10010`
-
-<br>
-
-### 方式二：本地构建
-
-适合想改代码的，把仓库拉下来构建：
-
-```bash
-cd /opt
-git clone https://github.com/wp-x/woopen.git
-cd woopen
+git clone https://github.com/wp-x/tyopen.git
+cd tyopen
 ```
 
 改一下 `docker-compose.yml` 里的密码，然后：
@@ -131,32 +73,78 @@ docker compose up -d --build
 
 浏览器打开 `http://服务器IP:10010`
 
+也可以直接使用预构建镜像（无需本地构建）：
+
+```yaml
+services:
+  tyopen:
+    image: ghcr.io/wp-x/tyopen:latest
+    container_name: tyopen
+    restart: unless-stopped
+    ports:
+      - "10010:10010"
+    volumes:
+      - ./data:/data
+    environment:
+      - TYOPEN_ADMIN_PASSWORD=改成你的密码
+      - TYOPEN_JWT_SECRET=改成至少32位的随机字符串
+      - TYOPEN_SITE_URL=http://你的域名或IP:10010
+```
+
 <br>
 
-### 填 Token
+### 方式二：本地开发
 
-登录后台，进「系统设置」，找到「刷新令牌」和「访问令牌」两个框。
+需要 Go 和 Node.js 环境，一键启动前后端：
 
-如果只拿到一个 UUID Token，把它填入 **Access Token**，Refresh Token 留空。
+```bash
+./start.sh
+```
 
-如果拿到的是响应字段中明确标记的 `refresh_token`，则填入 **Refresh Token**；系统会自动刷新并保存新的 Access Token。为兼容旧配置，Refresh Token 刷新返回 `8005` 时也会自动按 Access Token 验证。
+前端开发地址 `http://localhost:3000`，后端 `http://localhost:10010`。
 
-保存，去「文件管理」看看能不能加载出文件列表，能的话就成了。
+<br>
+
+### 配置云盘账号
+
+登录后台，进「系统设置」，在「云盘配置」里填写：
+
+- **云盘账号**：天翼云盘手机号
+- **云盘密码**：云盘登录密码
+
+保存后系统会自动登录 cloud.189.cn 并维护访问令牌（token 自动刷新落库）。如果登录触发电信验证码，请先在官方客户端登录一次后再试。
+
+如果账号触发了电信的**设备安全校验**（首次在新设备登录时可能出现），界面会弹出对话框引导你输入短信验证码；校验通过后设备会被标记为可信，后续登录不再触发。
+
+保存后去「文件管理」看看能不能加载出文件列表，能的话就成了。
+
+### 挂载路径（可选）
+
+默认管理的是云盘根目录。如果只想把某个子目录拿出来用（比如专门建一个「分享」目录），在「云盘配置」的**挂载路径**里填那个目录的 ID，保存后立即生效——文件管理、WebDAV、分享的根就都变成这个子目录，云盘里的其他内容完全不可见。留空则恢复为默认根目录。
+
+### Cookie 登录（备选）
+
+如果账号密码登录频繁触发电信验证码，可以改用 Cookie 登录：在「云盘配置」里展开「Cookie 登录（备选）」，粘贴网页版的 Cookie 后保存。
+
+获取方式：浏览器登录 [cloud.189.cn](https://cloud.189.cn) → `F12` 打开开发者工具 → Network → 刷新页面 → 点开任意 cloud.189.cn 请求 → 复制请求头里的 `Cookie` 整段内容。
+
+注意：设置了 Cookie 后**优先**使用 Cookie 连接云盘；Cookie 失效后系统不会自动续期，会提示"Cookie 已失效，请重新获取"，重新粘贴即可。想回到账号密码方式，点「清除已保存的 Cookie」。
+
+已知上游限制：Cookie 模式下，内容完全相同的文件重复上传可能被天翼的内容安全策略拦截（提示 `file md5 is in black list`），这是服务端行为；账号密码（PC 协议）模式无此限制，需要频繁覆盖上传同内容文件时建议用账号密码模式。
 
 <br>
 
 ## 环境变量
 
-> 从旧版升级：新版启动时会强制检查管理员密码和 JWT 密钥。旧 Compose 如果缺少
-> `WOOPEN_JWT_SECRET`，容器会反复重启。请先补齐下面两个必填变量，再执行
-> `docker compose pull && docker compose up -d --force-recreate`。
-
 | 变量 | 说明 | 默认 |
 | --- | --- | --- |
-| `WOOPEN_ADMIN_PASSWORD` | 登录密码（至少 12 位） | 必填 |
-| `WOOPEN_JWT_SECRET` | JWT 密钥（至少 32 位随机字符） | 必填 |
-| `WOOPEN_PORT` | 端口 | 10010 |
-| `WOOPEN_SITE_URL` | 域名 | 空 |
+| `TYOPEN_ADMIN_PASSWORD` | 登录密码（至少 12 位） | 必填 |
+| `TYOPEN_JWT_SECRET` | JWT 密钥（至少 32 位随机字符） | 必填 |
+| `TYOPEN_PORT` | 端口 | 10010 |
+| `TYOPEN_DATA_DIR` | 数据目录（SQLite 库 `tyopen.db` 所在目录） | ./data |
+| `TYOPEN_SITE_URL` | 站点外部访问地址（用于生成分享链接） | http://localhost:10010 |
+
+> 密码优先级：在后台「系统设置 → 修改密码」改过的密码持久化在数据库里，**优先于** `TYOPEN_ADMIN_PASSWORD`；环境变量只作为初始/兜底密码。
 
 <br>
 
@@ -225,7 +213,7 @@ http://你的服务器IP:10010/dav/
 
 **认证方式**
 
-WebDAV 使用 **Basic Auth**（账号固定为 `admin`，密码为你配置的后台管理员密码）。
+WebDAV 使用 **Basic Auth**，账号密码在后台「系统设置 → WebDAV 挂载」中配置（默认账号 `admin`）。
 
 **Windows 挂载**
 
@@ -273,17 +261,17 @@ sudo mount -t davfs http://你的服务器IP:10010/dav/ /mnt/webdav
 
 ## FAQ
 
-**Token 多久过期？**
+**登录态多久过期？**
 
-不固定，设置里可以开监控，过期了会推送通知。
+不固定，token 会自动刷新；设置里可以开监控，失效了会推送通知。
 
-**两个 token 为啥填一样的？**
+**登录时提示需要验证码？**
 
-联通云盘接口设计如此。
+电信的风控机制，先在官方客户端用同账号登录一次，再回来保存。
 
 **支持其他网盘吗？**
 
-不支持，只能联通云盘。
+不支持，只支持电信天翼云盘。
 
 <br>
 

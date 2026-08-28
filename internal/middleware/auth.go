@@ -22,7 +22,7 @@ func GenerateToken(expire string) (string, error) {
 	claims := JWTClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt: jwt.NewNumericDate(time.Now()),
-			Issuer:   "woopen",
+			Issuer:   "tyopen",
 		},
 	}
 	// ponytail: forever 即不设过期；JWT不可吊销，泄露只能靠换JWTSecret补救

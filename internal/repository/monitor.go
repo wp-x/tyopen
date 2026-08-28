@@ -3,7 +3,7 @@ package repository
 import (
 	"database/sql"
 	"time"
-	"woopen/internal/model"
+	"tyopen/internal/model"
 )
 
 // MonitorRepository 监控状态仓库

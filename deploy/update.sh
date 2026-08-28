@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WoOpen 一键更新脚本：拉代码 -> 备份库 -> 重建镜像 -> 重启 -> 看日志
+# TyOpen 一键更新脚本：拉代码 -> 备份库 -> 重建镜像 -> 重启 -> 看日志
 # 在项目根目录执行： bash deploy/update.sh
 set -euo pipefail
 
@@ -19,8 +19,8 @@ echo "[1/5] 拉取最新代码"
 git pull --ff-only
 
 echo "[2/5] 备份数据库（数据挂载在 ./data，重建不丢）"
-if [ -f data/woopen.db ]; then
-  cp -f data/woopen.db "data/woopen.db.bak.$(date +%Y%m%d%H%M%S)"
+if [ -f data/tyopen.db ]; then
+  cp -f data/tyopen.db "data/tyopen.db.bak.$(date +%Y%m%d%H%M%S)"
 fi
 
 echo "[3/5] 重建并重启容器"
@@ -30,5 +30,5 @@ echo "[4/5] 清理悬空镜像"
 docker image prune -f >/dev/null 2>&1 || true
 
 echo "[5/5] 最近日志"
-$DC logs --tail=30 woopen
+$DC logs --tail=30 tyopen
 echo "更新完成。迁移会在启动时自动执行（幂等），直连相关列已就绪。"

@@ -14,30 +14,60 @@
         </template>
 
         <el-form :model="cloudForm" label-width="100px" size="small">
-          <el-form-item label="Refresh Token">
+          <el-form-item label="云盘账号">
             <el-input
-              v-model="cloudForm.refresh_token"
-              type="password"
-              show-password
-              placeholder="从浏览器开发者工具获取"
+              v-model="cloudForm.account"
+              placeholder="天翼云盘手机号"
             />
             <div class="form-tip">
-              登录 <a href="https://pan.wo.cn" target="_blank">联通云盘</a> 后，在开发者工具 Network 中找到 refresh_token；只有一个 UUID 时请填到下方 Access Token
+              填写天翼云盘（<a href="https://cloud.189.cn" target="_blank">cloud.189.cn</a>）的手机号和密码，保存后自动登录并获取访问令牌
             </div>
           </el-form-item>
-          <el-form-item label="Access Token">
+          <el-form-item label="云盘密码">
             <el-input
-              v-model="cloudForm.access_token"
+              v-model="cloudForm.password"
               type="password"
               show-password
-              placeholder="与 Refresh Token 一起使用"
+              :placeholder="passwordSet ? '已设置，留空则不修改' : '请输入云盘密码'"
             />
             <div class="form-tip">
-              可选：最新页面常只显示一个 UUID 令牌，此时填写在这里；Refresh Token 失效时系统也会自动按 Access Token 尝试
+              <template v-if="passwordSet">密码已设置；</template>若登录触发电信验证码，请先在官方客户端登录一次后再试
             </div>
+          </el-form-item>
+          <el-form-item label="Cookie 登录">
+            <el-collapse class="cookie-collapse">
+              <el-collapse-item name="cookie">
+                <template #title>
+                  <span>Cookie 登录（备选）</span>
+                  <el-tag v-if="cookieSet" type="success" size="small" style="margin-left: 8px">
+                    已设置，优先生效
+                  </el-tag>
+                </template>
+                <el-input
+                  v-model="cloudForm.cookie"
+                  type="textarea"
+                  :rows="3"
+                  :placeholder="cookieSet ? '已设置，留空则不修改' : '粘贴 cloud.189.cn 请求的 Cookie 头'"
+                />
+                <div class="form-tip">
+                  获取方式：浏览器登录 cloud.189.cn → F12 → Network → 刷新页面 → 点开任意 cloud.189.cn 请求 → 复制请求头中的 Cookie。<br />
+                  设置 Cookie 后将优先使用 Cookie 连接云盘；Cookie 失效后需重新获取（无自动续期）。
+                </div>
+                <el-button
+                  v-if="cookieSet"
+                  size="small"
+                  type="danger"
+                  plain
+                  style="margin-top: 8px"
+                  @click="clearCookie"
+                >
+                  清除已保存的 Cookie
+                </el-button>
+              </el-collapse-item>
+            </el-collapse>
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" @click="testToken" :loading="testing">
+            <el-button type="primary" @click="testConnection" :loading="testing">
               测试连接
             </el-button>
             <el-button type="success" @click="saveCloudSettings" :loading="saving">
@@ -55,7 +85,7 @@
 
         <el-form :model="siteForm" label-width="100px" size="small">
           <el-form-item label="站点标题">
-            <el-input v-model="siteForm.site_title" placeholder="WoOpen" />
+            <el-input v-model="siteForm.site_title" placeholder="TyOpen" />
           </el-form-item>
           <el-form-item label="站点 Logo">
             <el-input v-model="siteForm.site_logo" placeholder="Logo URL（可选）" />
@@ -67,7 +97,7 @@
             <el-input v-model="siteForm.login_username" placeholder="Administrator" />
           </el-form-item>
           <el-form-item label="窗口标题">
-            <el-input v-model="siteForm.login_title" placeholder="WoOpen_Auth_v10.exe" />
+            <el-input v-model="siteForm.login_title" placeholder="TyOpen_Auth_v10.exe" />
           </el-form-item>
           <el-form-item label="头像图标">
             <el-input v-model="siteForm.login_avatar" placeholder="💀 或图片URL" />
@@ -79,13 +109,13 @@
             <el-input v-model="siteForm.login_level_tag" placeholder="LEVEL: 99" />
           </el-form-item>
           <el-form-item label="系统名称">
-            <el-input v-model="siteForm.login_system_name" placeholder="WOOPEN CLOUD SYSTEM" />
+            <el-input v-model="siteForm.login_system_name" placeholder="TYOPEN CLOUD SYSTEM" />
           </el-form-item>
 
           <el-divider content-position="left">分享界面自定义</el-divider>
 
           <el-form-item label="底部署名">
-            <el-input v-model="siteForm.share_footer" placeholder="Powered by WOOPEN_OS" />
+            <el-input v-model="siteForm.share_footer" placeholder="Powered by TYOPEN_OS" />
           </el-form-item>
 
           <el-form-item>
@@ -458,6 +488,24 @@
 
       <el-empty v-if="!loadingNotifications && notifications.length === 0" description="暂无通知记录" />
     </el-card>
+
+    <!-- 短信二次校验对话框 -->
+    <el-dialog v-model="smsDialogVisible" title="短信二次校验" width="400px" :close-on-click-modal="false">
+      <div style="margin-bottom: 12px; line-height: 1.6">
+        该账号触发了电信的设备安全校验，验证码已发送至 <b>{{ smsMobile }}</b>，请输入短信验证码完成登录。
+        校验通过后设备将被标记为可信，后续登录不再触发。
+      </div>
+      <el-input
+        v-model="smsCode"
+        maxlength="6"
+        placeholder="请输入 6 位短信验证码"
+        @keyup.enter="submitSmsCode"
+      />
+      <template #footer>
+        <el-button @click="smsDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="smsSubmitting" @click="submitSmsCode">提交验证码</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -468,18 +516,25 @@ import { publicApi, settingsApi, monitorApi } from '../../api'
 
 const settings = ref({
   initialized: false,
+  account: '',
+  password_set: false,
+  cookie_set: false,
   refresh_token: '',
-  access_token: '',
   root_folder_id: '',
   site_title: '',
   site_logo: ''
 })
 
 const cloudForm = ref({
-  refresh_token: '',
-  access_token: '',
+  account: '',
+  password: '',
+  cookie: '',
   root_folder_id: ''
 })
+// 后端是否已保存云盘密码（用于密码框占位提示）
+const passwordSet = ref(false)
+// 后端是否已保存云盘 Cookie（设置了则优先使用 Cookie 模式）
+const cookieSet = ref(false)
 
 const siteForm = ref({
   site_title: '',
@@ -569,6 +624,52 @@ const saving = ref(false)
 const testing = ref(false)
 const updatingPwd = ref(false)
 
+// 短信二次校验对话框状态
+const smsDialogVisible = ref(false)
+const smsTicket = ref('')
+const smsMobile = ref('')
+const smsCode = ref('')
+const smsSubmitting = ref(false)
+
+// runCloudLogin 发起交互式登录；触发二次校验时弹出短信验证码对话框。
+// 返回 true 表示已处理（登录成功或等待验证码），false 表示未发起。
+async function runCloudLogin(account: string, password: string): Promise<boolean> {
+  if (!account || !password || account.includes('****')) {
+    return false
+  }
+  const res = await settingsApi.loginStart({ account, password })
+  if (res.data?.status === 'need_sms') {
+    smsTicket.value = res.data.ticket
+    smsMobile.value = res.data.mobile || ''
+    smsCode.value = ''
+    smsDialogVisible.value = true
+    ElMessage.info('该账号需要短信二次校验，验证码已发送')
+    return true
+  }
+  ElMessage.success('云盘登录成功！')
+  setTimeout(() => loadSettings(), 1500)
+  return true
+}
+
+async function submitSmsCode() {
+  const code = smsCode.value.trim()
+  if (!code) {
+    ElMessage.warning('请输入短信验证码')
+    return
+  }
+  smsSubmitting.value = true
+  try {
+    await settingsApi.loginSms({ ticket: smsTicket.value, code })
+    smsDialogVisible.value = false
+    ElMessage.success('云盘登录成功！')
+    setTimeout(() => loadSettings(), 1500)
+  } catch (error) {
+    // 错误已处理（验证码错误可重试，会话过期需重新发起）
+  } finally {
+    smsSubmitting.value = false
+  }
+}
+
 // Prefer backend-reported external URL (handles reverse-proxy + dev proxy),
 // but fall back to the current origin.
 const webdavUrl = ref(`${window.location.origin}/dav/`)
@@ -590,10 +691,13 @@ async function loadSettings() {
     const res = await settingsApi.get()
     settings.value = res.data
     cloudForm.value = {
-      refresh_token: res.data.refresh_token,
-      access_token: res.data.access_token || '',
+      account: res.data.account || '',
+      password: '',
+      cookie: '',
       root_folder_id: res.data.root_folder_id
     }
+    passwordSet.value = !!res.data.password_set
+    cookieSet.value = !!res.data.cookie_set
     siteForm.value = {
       site_title: res.data.site_title,
       site_logo: res.data.site_logo,
@@ -623,21 +727,44 @@ async function loadSettings() {
   }
 }
 
-async function testToken() {
-  const refreshToken = cloudForm.value.refresh_token
-  const accessToken = cloudForm.value.access_token
-  const payload = {
-    refresh_token: refreshToken && !refreshToken.includes('****') ? refreshToken : '',
-    access_token: accessToken && !accessToken.includes('****') ? accessToken : ''
-  }
-  if (!payload.refresh_token && !payload.access_token) {
-    ElMessage.warning('请输入完整的 Refresh Token 或 Access Token')
+async function testConnection() {
+  const cookie = cloudForm.value.cookie.trim()
+  const account = cloudForm.value.account.trim()
+  const password = cloudForm.value.password
+  if (cookie && !cookie.includes('****')) {
+    // 填了 Cookie：优先测试 Cookie 会话
+    testing.value = true
+    try {
+      await settingsApi.testToken({ cookie })
+      ElMessage.success('云盘连接成功！')
+    } catch (error) {
+      // 错误已处理
+    } finally {
+      testing.value = false
+    }
     return
   }
+  if (account && !account.includes('****') && password) {
+    // 填了新的账号密码：走交互式登录（可能触发短信二次校验）
+    testing.value = true
+    try {
+      await runCloudLogin(account, password)
+    } catch (error) {
+      // 错误已处理
+    } finally {
+      testing.value = false
+    }
+    return
+  }
+  if (password && account.includes('****')) {
+    ElMessage.warning('修改密码时请同时输入完整的手机号账号')
+    return
+  }
+  // 否则不传凭据，测试已保存配置的连通性
   testing.value = true
   try {
-    await settingsApi.testToken(payload)
-    ElMessage.success('Token 有效，连接成功！')
+    await settingsApi.testToken({})
+    ElMessage.success('云盘连接成功！')
   } catch (error) {
     // 错误已处理
   } finally {
@@ -648,8 +775,52 @@ async function testToken() {
 async function saveCloudSettings() {
   saving.value = true
   try {
-    await settingsApi.update(cloudForm.value)
+    // cookie 留空表示不修改，不随表单提交；清除走 clearCookie 显式操作
+    const account = cloudForm.value.account.trim()
+    const password = cloudForm.value.password
+    const payload: Record<string, string> = {
+      account: cloudForm.value.account,
+      root_folder_id: cloudForm.value.root_folder_id
+    }
+    if (password) {
+      payload.password = password
+    }
+    const cookie = cloudForm.value.cookie.trim()
+    if (cookie && !cookie.includes('****')) {
+      payload.cookie = cookie
+    }
+    await settingsApi.update(payload)
+
+    // 填了新密码时顺手走交互式登录（可能触发短信二次校验）
+    if (password && account && !account.includes('****') && !cookie) {
+      try {
+        await runCloudLogin(account, password)
+        return
+      } catch (error) {
+        return // 登录错误已提示，配置已保存
+      }
+    }
     ElMessage.success('配置已保存，正在重新连接云盘...')
+    setTimeout(() => loadSettings(), 2000)
+  } catch (error) {
+    // 错误已处理
+  } finally {
+    saving.value = false
+  }
+}
+
+async function clearCookie() {
+  try {
+    await ElMessageBox.confirm('清除后将回退到账号密码登录方式，确定清除已保存的 Cookie 吗？', '清除 Cookie', {
+      type: 'warning'
+    })
+  } catch {
+    return
+  }
+  saving.value = true
+  try {
+    await settingsApi.update({ cookie: '' })
+    ElMessage.success('Cookie 已清除')
     setTimeout(() => loadSettings(), 2000)
   } catch (error) {
     // 错误已处理
@@ -913,6 +1084,11 @@ onMounted(() => {
 <style scoped>
 .settings-page {
   max-width: 1400px;
+}
+
+/* Cookie 折叠区域占满表单项宽度 */
+.cookie-collapse {
+  width: 100%;
 }
 
 /* 瀑布流布局 */

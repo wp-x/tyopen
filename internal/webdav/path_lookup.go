@@ -5,7 +5,7 @@ import (
 	"os"
 	"path"
 	"strings"
-	"woopen/internal/model"
+	"tyopen/internal/model"
 )
 
 type ResolvedPath struct {
@@ -15,12 +15,12 @@ type ResolvedPath struct {
 }
 
 // getFileIDByPath 根据路径获取文件ID（可用于目录或文件）
-func (fs *WopanFS) getFileIDByPath(ctx context.Context, filePath string) (string, error) {
+func (fs *Cloud189FS) getFileIDByPath(ctx context.Context, filePath string) (string, error) {
 	id, _, _, err := fs.lookupPath(ctx, filePath)
 	return id, err
 }
 
-func (fs *WopanFS) ResolvePath(ctx context.Context, filePath string) (ResolvedPath, error) {
+func (fs *Cloud189FS) ResolvePath(ctx context.Context, filePath string) (ResolvedPath, error) {
 	cleanPath := path.Clean(filePath)
 	if cleanPath == "/" || cleanPath == "." {
 		return ResolvedPath{
@@ -49,7 +49,7 @@ func (fs *WopanFS) ResolvePath(ctx context.Context, filePath string) (ResolvedPa
 // - id: the object's ID (directory id or file id)
 // - parentID: the parent directory ID ("0" for root)
 // - info: best-effort FileInfo (nil for root)
-func (fs *WopanFS) lookupPath(ctx context.Context, filePath string) (id string, parentID string, info *model.FileInfo, err error) {
+func (fs *Cloud189FS) lookupPath(ctx context.Context, filePath string) (id string, parentID string, info *model.FileInfo, err error) {
 	cleanPath := normalizePath(filePath)
 
 	// 根目录
@@ -112,7 +112,7 @@ func (fs *WopanFS) lookupPath(ctx context.Context, filePath string) (id string, 
 	return currentID, currentParentID, info, nil
 }
 
-func (fs *WopanFS) findChildByName(ctx context.Context, dirID, name string) (*model.FileInfo, error) {
+func (fs *Cloud189FS) findChildByName(ctx context.Context, dirID, name string) (*model.FileInfo, error) {
 	files, err := fs.listAllInDirCached(ctx, dirID)
 	if err != nil {
 		return nil, err
@@ -125,7 +125,7 @@ func (fs *WopanFS) findChildByName(ctx context.Context, dirID, name string) (*mo
 	return nil, os.ErrNotExist
 }
 
-func (fs *WopanFS) listAllInDir(ctx context.Context, dirID string) ([]*model.FileInfo, error) {
+func (fs *Cloud189FS) listAllInDir(ctx context.Context, dirID string) ([]*model.FileInfo, error) {
 	var out []*model.FileInfo
 	page := 1
 	for {
@@ -142,7 +142,7 @@ func (fs *WopanFS) listAllInDir(ctx context.Context, dirID string) ([]*model.Fil
 	return out, nil
 }
 
-func (fs *WopanFS) listAllInDirCached(ctx context.Context, dirID string) ([]*model.FileInfo, error) {
+func (fs *Cloud189FS) listAllInDirCached(ctx context.Context, dirID string) ([]*model.FileInfo, error) {
 	if cached, ok := fs.getDirCacheEntry(dirID); ok {
 		return cached, nil
 	}
@@ -165,7 +165,7 @@ func (fs *WopanFS) listAllInDirCached(ctx context.Context, dirID string) ([]*mod
 	return cloneFileInfos(v.([]*model.FileInfo)), nil
 }
 
-func (fs *WopanFS) primeChildPathCache(parentPath, parentID string, files []*model.FileInfo) {
+func (fs *Cloud189FS) primeChildPathCache(parentPath, parentID string, files []*model.FileInfo) {
 	if parentID == "" || len(files) == 0 {
 		return
 	}

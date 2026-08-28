@@ -7,32 +7,32 @@ import (
 	"path"
 	"sync"
 	"time"
-	"woopen/internal/wopan"
+	"tyopen/internal/cloud189"
 
 	"golang.org/x/net/webdav"
 )
 
-// WopanFS 实现 webdav.FileSystem 接口
-type WopanFS struct {
-	client *wopan.Client
+// Cloud189FS 实现 webdav.FileSystem 接口
+type Cloud189FS struct {
+	client *cloud189.Client
 
 	dirCacheMu  sync.RWMutex
 	dirCache    map[string]*dirCacheEntry
 	pathCacheMu sync.RWMutex
 	pathCache   map[string]*pathCacheEntry
 
-	// singleflight 合并并发的相同上游请求，避免缓存击穿把联通 API 打爆。
+	// singleflight 合并并发的相同上游请求，避免缓存击穿把天翼 API 打爆。
 	listSF singleGroup
 	urlSF  singleGroup
 
-	// 下载链接缓存：联通链接有一定有效期，短 TTL 复用可大幅减少 GetDownloadURL 调用。
+	// 下载链接缓存：天翼链接有一定有效期，短 TTL 复用可大幅减少 GetDownloadURL 调用。
 	urlCacheMu sync.RWMutex
 	urlCache   map[string]urlCacheEntry
 }
 
-// NewWopanFS 创建新的 WebDAV 文件系统
-func NewWopanFS(client *wopan.Client) *WopanFS {
-	return &WopanFS{
+// NewCloud189FS 创建新的 WebDAV 文件系统
+func NewCloud189FS(client *cloud189.Client) *Cloud189FS {
+	return &Cloud189FS{
 		client:    client,
 		dirCache:  make(map[string]*dirCacheEntry),
 		pathCache: make(map[string]*pathCacheEntry),
@@ -45,13 +45,13 @@ type urlCacheEntry struct {
 	expires time.Time
 }
 
-// urlCacheTTL 保守取值，远小于联通下载链接实际有效期，避免返回过期链接。
+// urlCacheTTL 保守取值，远小于天翼下载链接实际有效期，避免返回过期链接。
 const urlCacheTTL = 8 * time.Minute
 
 // DownloadURL 返回文件下载直链，带缓存 + singleflight 去重。
 // WebDAV 客户端会对同一文件密集发起 HEAD/GET，直连每次都锁 metaMu 打上游，
 // 这里合并并短时缓存，是挂载不卡的关键。
-func (fs *WopanFS) DownloadURL(fileID string) (string, error) {
+func (fs *Cloud189FS) DownloadURL(fileID string) (string, error) {
 	fs.urlCacheMu.RLock()
 	e, ok := fs.urlCache[fileID]
 	fs.urlCacheMu.RUnlock()
@@ -76,7 +76,7 @@ func (fs *WopanFS) DownloadURL(fileID string) (string, error) {
 }
 
 // Mkdir 创建目录
-func (fs *WopanFS) Mkdir(ctx context.Context, name string, perm os.FileMode) error {
+func (fs *Cloud189FS) Mkdir(ctx context.Context, name string, perm os.FileMode) error {
 	cleanName := path.Clean(name)
 	if cleanName == "/" || cleanName == "." {
 		return os.ErrExist
@@ -101,7 +101,7 @@ func (fs *WopanFS) Mkdir(ctx context.Context, name string, perm os.FileMode) err
 }
 
 // OpenFile 打开文件
-func (fs *WopanFS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMode) (webdav.File, error) {
+func (fs *Cloud189FS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMode) (webdav.File, error) {
 	cleanName := path.Clean(name)
 
 	if cleanName == "/" || cleanName == "." {
@@ -144,7 +144,7 @@ func (fs *WopanFS) OpenFile(ctx context.Context, name string, flag int, perm os.
 }
 
 // RemoveAll 删除文件或目录
-func (fs *WopanFS) RemoveAll(ctx context.Context, name string) error {
+func (fs *Cloud189FS) RemoveAll(ctx context.Context, name string) error {
 	cleanName := path.Clean(name)
 	if cleanName == "/" || cleanName == "." {
 		return fmt.Errorf("refuse to delete root")
@@ -172,7 +172,7 @@ func (fs *WopanFS) RemoveAll(ctx context.Context, name string) error {
 }
 
 // Rename 重命名文件或目录
-func (fs *WopanFS) Rename(ctx context.Context, oldName, newName string) error {
+func (fs *Cloud189FS) Rename(ctx context.Context, oldName, newName string) error {
 	cleanOld := path.Clean(oldName)
 	cleanNew := path.Clean(newName)
 	if cleanOld == "/" || cleanOld == "." || cleanNew == "/" || cleanNew == "." {
@@ -240,7 +240,7 @@ func (fs *WopanFS) Rename(ctx context.Context, oldName, newName string) error {
 }
 
 // Stat 获取文件信息
-func (fs *WopanFS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
+func (fs *Cloud189FS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
 	cleanName := path.Clean(name)
 
 	// 根目录

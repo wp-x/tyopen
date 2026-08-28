@@ -3,7 +3,7 @@ package handler
 import (
 	"sync"
 	"time"
-	"woopen/internal/model"
+	"tyopen/internal/model"
 )
 
 const (

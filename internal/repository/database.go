@@ -46,7 +46,7 @@ func (d *Database) migrate() error {
 			access_token TEXT DEFAULT '',
 			root_folder_id TEXT DEFAULT '',
 			family_id TEXT DEFAULT '',
-			site_title TEXT DEFAULT 'WoOpen',
+			site_title TEXT DEFAULT 'TyOpen',
 			site_logo TEXT DEFAULT '',
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -54,12 +54,12 @@ func (d *Database) migrate() error {
 		`INSERT OR IGNORE INTO settings (id, refresh_token) VALUES (1, '')`,
 
 		// 站点自定义字段迁移
-		`ALTER TABLE settings ADD COLUMN login_title TEXT DEFAULT 'WoOpen_Auth_v10.exe'`,
+		`ALTER TABLE settings ADD COLUMN login_title TEXT DEFAULT 'TyOpen_Auth_v10.exe'`,
 		`ALTER TABLE settings ADD COLUMN login_avatar TEXT DEFAULT '💀'`,
 		`ALTER TABLE settings ADD COLUMN login_role_tag TEXT DEFAULT 'ROLE: ADMIN'`,
 		`ALTER TABLE settings ADD COLUMN login_level_tag TEXT DEFAULT 'LEVEL: 99'`,
-		`ALTER TABLE settings ADD COLUMN login_system_name TEXT DEFAULT 'WOOPEN CLOUD SYSTEM'`,
-		`ALTER TABLE settings ADD COLUMN share_footer TEXT DEFAULT 'Powered by WOOPEN_OS // BRUTAL_EDITION'`,
+		`ALTER TABLE settings ADD COLUMN login_system_name TEXT DEFAULT 'TYOPEN CLOUD SYSTEM'`,
+		`ALTER TABLE settings ADD COLUMN share_footer TEXT DEFAULT 'Powered by TYOPEN_OS // BRUTAL_EDITION'`,
 
 		// 分享表
 		`CREATE TABLE IF NOT EXISTS shares (
@@ -152,6 +152,16 @@ func (d *Database) migrate() error {
 
 		// 登录页用户名（可自定义，避免写死）
 		`ALTER TABLE settings ADD COLUMN login_username TEXT DEFAULT 'Administrator'`,
+
+		// 电信云盘账号密码（替代手工粘贴 refresh_token）
+		`ALTER TABLE settings ADD COLUMN account TEXT DEFAULT ''`,
+		`ALTER TABLE settings ADD COLUMN password TEXT DEFAULT ''`,
+
+		// 电信云盘网页版 Cookie（第二种认证方式）
+		`ALTER TABLE settings ADD COLUMN cookie TEXT DEFAULT ''`,
+
+		// 管理员密码 bcrypt 哈希（后台改密后优先于环境变量密码）
+		`ALTER TABLE settings ADD COLUMN admin_password_hash TEXT DEFAULT ''`,
 	}
 
 	for _, migration := range migrations {

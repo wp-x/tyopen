@@ -8,13 +8,13 @@ import (
 	"os"
 	"strings"
 
-	"woopen/internal/config"
-	"woopen/internal/handler"
-	"woopen/internal/middleware"
-	"woopen/internal/repository"
-	"woopen/internal/service"
-	"woopen/internal/webdav"
-	"woopen/internal/wopan"
+	"tyopen/internal/cloud189"
+	"tyopen/internal/config"
+	"tyopen/internal/handler"
+	"tyopen/internal/middleware"
+	"tyopen/internal/repository"
+	"tyopen/internal/service"
+	"tyopen/internal/webdav"
 
 	"github.com/gin-gonic/gin"
 	xwebdav "golang.org/x/net/webdav"
@@ -29,7 +29,7 @@ type repoBundle struct {
 }
 
 func logStartup(cfg *config.Config) {
-	log.Printf("WoOpen 正在启动...")
+	log.Printf("TyOpen 正在启动...")
 	log.Printf("数据目录: %s", cfg.DataDir)
 	log.Printf("服务端口: %s", cfg.Port)
 }
@@ -44,7 +44,7 @@ func initRepositories(db *repository.Database) repoBundle {
 	}
 }
 
-func initHandler(repos repoBundle, wopanClient *wopan.Client, adminPassword string) *handler.Handler {
+func initHandler(repos repoBundle, panClient *cloud189.Client, adminPassword, jwtSecret string) *handler.Handler {
 	listCache := handler.NewListTTLCache(handler.DefaultListCacheTTL)
 	return handler.NewHandler(handler.HandlerOptions{
 		SettingsRepo:        repos.settings,
@@ -52,16 +52,17 @@ func initHandler(repos repoBundle, wopanClient *wopan.Client, adminPassword stri
 		AccessLogRepo:       repos.accessLog,
 		MonitorRepo:         repos.monitor,
 		NotificationLogRepo: repos.notification,
-		WopanClient:         wopanClient,
+		PanClient:           panClient,
 		AdminPassword:       adminPassword,
+		JWTSecret:           jwtSecret,
 		ListCache:           listCache,
 		HTTPClient:          http.DefaultClient,
 	})
 }
 
-func initMonitorService(repos repoBundle, wopanClient *wopan.Client, h *handler.Handler) *service.MonitorService {
+func initMonitorService(repos repoBundle, panClient *cloud189.Client, h *handler.Handler) *service.MonitorService {
 	notifier := service.NewNotifier(repos.notification)
-	monitorService := service.NewMonitorService(repos.settings, repos.monitor, wopanClient, notifier)
+	monitorService := service.NewMonitorService(repos.settings, repos.monitor, panClient, notifier)
 	h.SetMonitorService(monitorService)
 	return monitorService
 }
@@ -90,9 +91,9 @@ var webdavWriteMethods = map[string]bool{
 	"LOCK": true, "UNLOCK": true,
 }
 
-func newWebDAVHandler(wopanClient *wopan.Client, settingsRepo *repository.SettingsRepository, adminPassword string) http.Handler {
+func newWebDAVHandler(panClient *cloud189.Client, settingsRepo *repository.SettingsRepository, adminVerify func(password string) bool) http.Handler {
 	authLimiter := newWebDAVAuthLimiter()
-	davFS := webdav.NewWopanFS(wopanClient)
+	davFS := webdav.NewCloud189FS(panClient)
 	dav := &xwebdav.Handler{
 		Prefix:     "/dav",
 		FileSystem: davFS,
@@ -131,17 +132,26 @@ func newWebDAVHandler(wopanClient *wopan.Client, settingsRepo *repository.Settin
 			return
 		}
 
-		user, pass := "admin", adminPassword
+		user := "admin"
+		webdavPass := ""
 		readonly := false
 		if settings != nil {
 			user = settings.WebdavUsername
-			if settings.WebdavPassword != "" {
-				pass = settings.WebdavPassword
-			}
+			webdavPass = settings.WebdavPassword
 			readonly = settings.WebdavReadonly
 		}
+		// webdav_password 单独设置时优先；空则回落当前生效的管理员密码（动态取，支持后台改密）
+		verify := func(u, p string) bool {
+			if u != user {
+				return false
+			}
+			if webdavPass != "" {
+				return p == webdavPass
+			}
+			return adminVerify(p)
+		}
 
-		if !authenticateWebDAV(w, r, user, pass) {
+		if !authenticateWebDAV(w, r, verify) {
 			authLimiter.recordFailure(clientIP)
 			return
 		}
@@ -207,7 +217,7 @@ func newWebDAVHandler(wopanClient *wopan.Client, settingsRepo *repository.Settin
 	})
 }
 
-func authenticateWebDAV(w http.ResponseWriter, r *http.Request, wantUser, wantPass string) bool {
+func authenticateWebDAV(w http.ResponseWriter, r *http.Request, verify func(user, pass string) bool) bool {
 	auth := getWebDAVAuthHeader(r)
 	if auth == "" {
 		log.Printf("[WebDAV] auth missing: %s %s ua=%q", r.Method, r.URL.Path, r.UserAgent())
@@ -225,7 +235,7 @@ func authenticateWebDAV(w http.ResponseWriter, r *http.Request, wantUser, wantPa
 		return true
 	}
 	user, pass, ok := parseBasicAuth(auth)
-	if !ok || user != wantUser || pass != wantPass {
+	if !ok || !verify(user, pass) {
 		log.Printf("[WebDAV] auth failed: user=%q ok=%v", user, ok)
 		davChallenge(w)
 		return false
@@ -262,7 +272,7 @@ func parseBasicAuth(auth string) (string, string, bool) {
 }
 
 func davChallenge(w http.ResponseWriter) {
-	w.Header().Set("WWW-Authenticate", `Basic realm="WoOpen WebDAV"`)
+	w.Header().Set("WWW-Authenticate", `Basic realm="TyOpen WebDAV"`)
 	http.Error(w, "Unauthorized", http.StatusUnauthorized)
 }
 
@@ -274,7 +284,7 @@ func startHTTPServer(ginEngine *gin.Engine, davHandler http.Handler, port string
 		}
 		ginEngine.ServeHTTP(w, r)
 	})
-	log.Printf("WoOpen 启动成功! 访问: http://localhost:%s", port)
+	log.Printf("TyOpen 启动成功! 访问: http://localhost:%s", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatalf("启动服务失败: %v", err)
 	}

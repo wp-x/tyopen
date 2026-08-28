@@ -1317,9 +1317,6 @@ function formatDate(dateStr: string): string {
   return date.toLocaleString('zh-CN')
 }
 
-onMounted(() => {
-  loadFiles()
-})
 </script>
 
 <style scoped>

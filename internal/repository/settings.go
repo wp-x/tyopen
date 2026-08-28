@@ -3,7 +3,7 @@ package repository
 import (
 	"database/sql"
 	"time"
-	"woopen/internal/model"
+	"tyopen/internal/model"
 )
 
 // SettingsRepository 设置仓库
@@ -32,13 +32,13 @@ func (r *SettingsRepository) Get() (*model.Settings, error) {
 	var webdavEnabled, webdavReadonly sql.NullBool
 	var webdavUsername, webdavPassword sql.NullString
 	err := r.db.QueryRow(`
-		SELECT id, refresh_token, COALESCE(access_token, '') as access_token, root_folder_id, site_title, site_logo,
-			   COALESCE(login_title, 'WoOpen_Auth_v10.exe') as login_title,
+		SELECT id, account, password, cookie, COALESCE(admin_password_hash, '') as admin_password_hash, refresh_token, COALESCE(access_token, '') as access_token, root_folder_id, site_title, site_logo,
+			   COALESCE(login_title, 'TyOpen_Auth_v10.exe') as login_title,
 			   COALESCE(login_avatar, '💀') as login_avatar,
 			   COALESCE(login_role_tag, 'ROLE: ADMIN') as login_role_tag,
 			   COALESCE(login_level_tag, 'LEVEL: 99') as login_level_tag,
-			   COALESCE(login_system_name, 'WOOPEN CLOUD SYSTEM') as login_system_name,
-			   COALESCE(share_footer, 'Powered by WOOPEN_OS // BRUTAL_EDITION') as share_footer,
+			   COALESCE(login_system_name, 'TYOPEN CLOUD SYSTEM') as login_system_name,
+			   COALESCE(share_footer, 'Powered by TYOPEN_OS // BRUTAL_EDITION') as share_footer,
 			   COALESCE(monitor_enabled, 0) as monitor_enabled,
 			   COALESCE(monitor_interval, 300) as monitor_interval,
 			   COALESCE(notify_enabled, 0) as notify_enabled,
@@ -66,6 +66,10 @@ func (r *SettingsRepository) Get() (*model.Settings, error) {
 		FROM settings WHERE id = 1
 	`).Scan(
 		&settings.ID,
+		&settings.Account,
+		&settings.Password,
+		&settings.Cookie,
+		&settings.AdminPasswordHash,
 		&settings.RefreshToken,
 		&accessToken,
 		&settings.RootFolderID,
@@ -221,6 +225,10 @@ func (r *SettingsRepository) Get() (*model.Settings, error) {
 func (r *SettingsRepository) Update(settings *model.Settings) error {
 	_, err := r.db.Exec(`
 		UPDATE settings SET
+			account = ?,
+			password = ?,
+			cookie = ?,
+			admin_password_hash = ?,
 			refresh_token = ?,
 			access_token = ?,
 			root_folder_id = ?,
@@ -259,6 +267,10 @@ func (r *SettingsRepository) Update(settings *model.Settings) error {
 			updated_at = ?
 		WHERE id = 1
 	`,
+		settings.Account,
+		settings.Password,
+		settings.Cookie,
+		settings.AdminPasswordHash,
 		settings.RefreshToken,
 		settings.AccessToken,
 		settings.RootFolderID,
@@ -319,4 +331,15 @@ func (r *SettingsRepository) GetAccessToken() (string, error) {
 		return accessToken.String, err
 	}
 	return "", err
+}
+
+// UpdateAdminPasswordHash 更新管理员密码哈希
+func (r *SettingsRepository) UpdateAdminPasswordHash(hash string) error {
+	_, err := r.db.Exec(`
+		UPDATE settings SET
+			admin_password_hash = ?,
+			updated_at = ?
+		WHERE id = 1
+	`, hash, time.Now())
+	return err
 }

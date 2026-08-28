@@ -2,24 +2,24 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
 export const useAuthStore = defineStore('auth', () => {
-    const token = ref<string | null>(localStorage.getItem('woopen_token'))
-    const darkMode = ref<boolean>(localStorage.getItem('woopen_dark') === 'true')
+    const token = ref<string | null>(localStorage.getItem('tyopen_token'))
+    const darkMode = ref<boolean>(localStorage.getItem('tyopen_dark') === 'true')
 
     const isLoggedIn = computed(() => !!token.value)
 
     function setToken(newToken: string) {
         token.value = newToken
-        localStorage.setItem('woopen_token', newToken)
+        localStorage.setItem('tyopen_token', newToken)
     }
 
     function logout() {
         token.value = null
-        localStorage.removeItem('woopen_token')
+        localStorage.removeItem('tyopen_token')
     }
 
     function toggleDarkMode() {
         darkMode.value = !darkMode.value
-        localStorage.setItem('woopen_dark', String(darkMode.value))
+        localStorage.setItem('tyopen_dark', String(darkMode.value))
         applyDarkMode()
     }
 

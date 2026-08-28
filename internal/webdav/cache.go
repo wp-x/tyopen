@@ -4,7 +4,7 @@ import (
 	"path"
 	"strings"
 	"time"
-	"woopen/internal/model"
+	"tyopen/internal/model"
 )
 
 const (
@@ -44,7 +44,7 @@ func cloneFileInfos(files []*model.FileInfo) []*model.FileInfo {
 	return out
 }
 
-func (fs *WopanFS) getPathCacheEntry(p string) (*pathCacheEntry, bool) {
+func (fs *Cloud189FS) getPathCacheEntry(p string) (*pathCacheEntry, bool) {
 	key := normalizePath(p)
 	now := time.Now()
 
@@ -63,7 +63,7 @@ func (fs *WopanFS) getPathCacheEntry(p string) (*pathCacheEntry, bool) {
 	return entry, true
 }
 
-func (fs *WopanFS) setPathCacheEntry(p string, entry pathCacheEntry) {
+func (fs *Cloud189FS) setPathCacheEntry(p string, entry pathCacheEntry) {
 	key := normalizePath(p)
 	clone := entry
 	clone.expires = time.Now().Add(cacheTTL)
@@ -72,14 +72,14 @@ func (fs *WopanFS) setPathCacheEntry(p string, entry pathCacheEntry) {
 	fs.pathCacheMu.Unlock()
 }
 
-func (fs *WopanFS) invalidatePathCache(p string) {
+func (fs *Cloud189FS) invalidatePathCache(p string) {
 	key := normalizePath(p)
 	fs.pathCacheMu.Lock()
 	delete(fs.pathCache, key)
 	fs.pathCacheMu.Unlock()
 }
 
-func (fs *WopanFS) invalidatePathPrefix(prefix string) {
+func (fs *Cloud189FS) invalidatePathPrefix(prefix string) {
 	key := normalizePath(prefix)
 	if key == "/" {
 		fs.pathCacheMu.Lock()
@@ -100,7 +100,7 @@ func (fs *WopanFS) invalidatePathPrefix(prefix string) {
 	fs.pathCacheMu.Unlock()
 }
 
-func (fs *WopanFS) getDirCacheEntry(dirID string) ([]*model.FileInfo, bool) {
+func (fs *Cloud189FS) getDirCacheEntry(dirID string) ([]*model.FileInfo, bool) {
 	now := time.Now()
 	fs.dirCacheMu.RLock()
 	entry, ok := fs.dirCache[dirID]
@@ -117,7 +117,7 @@ func (fs *WopanFS) getDirCacheEntry(dirID string) ([]*model.FileInfo, bool) {
 	return cloneFileInfos(entry.files), true
 }
 
-func (fs *WopanFS) setDirCacheEntry(dirID string, files []*model.FileInfo) {
+func (fs *Cloud189FS) setDirCacheEntry(dirID string, files []*model.FileInfo) {
 	fs.dirCacheMu.Lock()
 	fs.dirCache[dirID] = &dirCacheEntry{
 		files:   cloneFileInfos(files),
@@ -126,7 +126,7 @@ func (fs *WopanFS) setDirCacheEntry(dirID string, files []*model.FileInfo) {
 	fs.dirCacheMu.Unlock()
 }
 
-func (fs *WopanFS) invalidateDirCache(dirID string) {
+func (fs *Cloud189FS) invalidateDirCache(dirID string) {
 	fs.dirCacheMu.Lock()
 	delete(fs.dirCache, dirID)
 	fs.dirCacheMu.Unlock()

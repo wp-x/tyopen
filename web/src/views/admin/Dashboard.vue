@@ -38,7 +38,7 @@
         <div class="console-content terminal-font">
           <div>状态: <span :style="{ color: initialized ? 'green' : 'red' }">{{ initialized ? '运行中' : '离线' }}</span></div>
           <div>-----------------</div>
-          <div>节点: {{ siteTitle || 'WOOPEN_CORE' }}</div>
+          <div>节点: {{ siteTitle || 'TYOPEN_CORE' }}</div>
           <div>TOKEN: {{ initialized ? '已验证' : '丢失' }}</div>
           <div v-if="!initialized" style="margin-top: 10px;">
              <button class="btn-brutal smaller" @click="router.push('/admin/settings')" style="background: red; color: white;">立即修复</button>

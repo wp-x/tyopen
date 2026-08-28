@@ -6,12 +6,12 @@ import (
 )
 
 // DefaultDirectURLCacheTTL 直链缓存有效期。
-// 联通 CDN 签名直链本身会过期，此处需设为「实测有效期的 70%」。
+// 电信 CDN 签名直链本身会过期，此处需设为「实测有效期的 70%」。
 // 阶段0 实测方法见 docs/plan-direct-link.md；未实测前取保守值 3 分钟。
 // ponytail: 常量即可，实测后改这里；真需要热更新再挪进 settings。
 const DefaultDirectURLCacheTTL = 3 * time.Minute
 
-// DirectURLCache 按云盘文件ID缓存联通签名直链，降低高频外链对上游API的调用。
+// DirectURLCache 按云盘文件ID缓存电信签名直链，降低高频外链对上游API的调用。
 type DirectURLCache interface {
 	Get(fileID string) (string, bool)
 	Set(fileID, url string)

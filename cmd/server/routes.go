@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"woopen/internal/handler"
-	"woopen/internal/middleware"
+	"tyopen/internal/handler"
+	"tyopen/internal/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -124,6 +124,8 @@ func registerSettingsRoutes(auth *gin.RouterGroup, h *handler.Handler) {
 	auth.PUT("/settings", h.UpdateSettings)
 	auth.PUT("/settings/password", h.UpdatePassword)
 	auth.POST("/settings/token/test", h.TestToken)
+	auth.POST("/settings/cloud/login/start", h.CloudLoginStart)
+	auth.POST("/settings/cloud/login/sms", h.CloudLoginSMS)
 }
 
 func registerMonitorRoutes(auth *gin.RouterGroup, h *handler.Handler) {
@@ -166,7 +168,7 @@ func devModeHTML() string {
 <html>
 <head>
 	<meta charset="UTF-8">
-	<title>WoOpen - 开发模式</title>
+	<title>TyOpen - 开发模式</title>
 	<style>
 		body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
 			   max-width: 800px; margin: 100px auto; padding: 20px; }
@@ -176,7 +178,7 @@ func devModeHTML() string {
 	</style>
 </head>
 <body>
-	<h1>🚀 WoOpen 后端已启动</h1>
+	<h1>🚀 TyOpen 后端已启动</h1>
 	<p>前端正在开发中，请运行前端开发服务器。</p>
 	<div class="api">
 		<h3>可用的API端点：</h3>
