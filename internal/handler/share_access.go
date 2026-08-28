@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 	"tyopen/internal/model"
@@ -21,6 +22,10 @@ const shareAuthCookieTTL = 24 * time.Hour
 
 // shareTreeCacheTTL 文件夹分享子树 ID 集合缓存有效期
 const shareTreeCacheTTL = 30 * time.Second
+
+// shareTreeCacheMaxEntries 超过该条目数时触发一次过期条目清理，
+// 防止长期运行实例中已删除/过期分享的缓存永久驻留内存。
+const shareTreeCacheMaxEntries = 512
 
 // shareAuthToken 计算分享免密 cookie 值：HMAC-SHA256(分享密码, JWT secret) 的 hex
 func (h *Handler) shareAuthToken(sharePassword string) string {
@@ -47,6 +52,7 @@ func (h *Handler) setShareAuthCookie(c *gin.Context, share *model.Share) {
 		Path:     "/",
 		MaxAge:   maxAge,
 		HttpOnly: true,
+		Secure:   strings.HasPrefix(h.requestBaseURL(c), "https://"),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -107,9 +113,22 @@ func (h *Handler) shareTreeIDs(share *model.Share) (map[string]bool, error) {
 	}
 
 	shareTreeCache.Lock()
+	if len(shareTreeCache.m) >= shareTreeCacheMaxEntries {
+		purgeExpiredShareTreeEntries()
+	}
 	shareTreeCache.m[key] = shareTreeCacheEntry{ids: ids, expires: time.Now().Add(shareTreeCacheTTL)}
 	shareTreeCache.Unlock()
 	return ids, nil
+}
+
+// purgeExpiredShareTreeEntries 删除全部已过期的子树缓存条目。调用方需持有 shareTreeCache.Lock。
+func purgeExpiredShareTreeEntries() {
+	now := time.Now()
+	for k, e := range shareTreeCache.m {
+		if now.After(e.expires) {
+			delete(shareTreeCache.m, k)
+		}
+	}
 }
 
 // buildShareTreeIDs BFS 枚举子树（复用 listAllShareFiles 的分页枚举逻辑）

@@ -142,7 +142,8 @@ services:
 | `TYOPEN_JWT_SECRET` | JWT 密钥（至少 32 位随机字符） | 必填 |
 | `TYOPEN_PORT` | 端口 | 10000 |
 | `TYOPEN_DATA_DIR` | 数据目录（SQLite 库 `tyopen.db` 所在目录） | ./data |
-| `TYOPEN_SITE_URL` | 站点外部访问地址（用于生成分享链接） | http://localhost:10000 |
+| `TYOPEN_SITE_URL` | 站点外部访问地址（用于生成分享链接/二维码；留空则自动推导） | 空（自动推导） |
+| `TYOPEN_TRUSTED_PROXIES` | 可信反向代理 IP/CIDR，逗号分隔（如 `127.0.0.1,10.0.0.0/8`）。**部署在 Nginx/Cloudflare 后时必须配置**，否则限流会按代理 IP 聚合、分享链接域名推导异常 | 空（不信任任何代理头） |
 
 > 密码优先级：在后台「系统设置 → 修改密码」改过的密码持久化在数据库里，**优先于** `TYOPEN_ADMIN_PASSWORD`；环境变量只作为初始/兜底密码。
 
@@ -160,12 +161,14 @@ server {
     location / {
         proxy_pass http://127.0.0.1:10000;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
 }
 ```
 
-HTTPS 用 certbot 或者套 Cloudflare。
+> ⚠️ 安全说明：默认情况下 TyOpen **不信任任何** `X-Forwarded-*` 头（防止伪造 IP 绕过限流、Host 投毒）。反代部署时请把代理 IP 加入 `TYOPEN_TRUSTED_PROXIES`（如 `TYOPEN_TRUSTED_PROXIES=127.0.0.1`），否则登录/直连限流会按代理 IP 聚合、分享链接会推导成内网地址；同时建议设置 `TYOPEN_SITE_URL` 固定外部地址，效果最稳。
 
 <br>
 

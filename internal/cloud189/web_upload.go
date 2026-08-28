@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -156,7 +155,7 @@ func (b *webBackend) uploadRequest(ctx context.Context, uri string, form map[str
 	date := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	requestID := randomPattern("xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx")
 	l := randomPattern("xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxx")
-	l = l[:16+rand.Intn(16)]
+	l = l[:randKeyLength()]
 
 	encrypted, err := aesECBEncrypt([]byte(encodeWebForm(form)), []byte(l[:16]))
 	if err != nil {

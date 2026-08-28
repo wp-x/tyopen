@@ -10,5 +10,7 @@ services:
       - TYOPEN_ADMIN_PASSWORD=your_secure_password
       - TYOPEN_JWT_SECRET=replace_with_a_random_secret_at_least_32_chars
       - TYOPEN_SITE_URL=https://your-domain.com
+      # 反代部署时把代理 IP 加入可信列表（如 127.0.0.1），否则限流/分享链接推导异常
+      # - TYOPEN_TRUSTED_PROXIES=127.0.0.1
       - TZ=Asia/Shanghai
     restart: unless-stopped
