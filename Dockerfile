@@ -31,9 +31,9 @@ COPY --from=frontend-builder /app/dist ./web/dist
 # Create data directory
 RUN mkdir -p /data
 
-EXPOSE 10010
+EXPOSE 10000
 
 ENV TYOPEN_DATA_DIR=/data
-ENV TYOPEN_PORT=10010
+ENV TYOPEN_PORT=10000
 
 CMD ["./tyopen"]

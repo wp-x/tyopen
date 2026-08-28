@@ -3,7 +3,7 @@ services:
     build: .
     container_name: tyopen
     ports:
-      - "10010:10010"
+      - "10000:10000"
     volumes:
       - ./data:/data
     environment:

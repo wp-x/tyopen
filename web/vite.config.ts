@@ -9,19 +9,19 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:10010',
+        target: 'http://localhost:10000',
         changeOrigin: true
       },
       '/dav': {
-        target: 'http://localhost:10010',
+        target: 'http://localhost:10000',
         changeOrigin: true
       },
       '/f/': {
-        target: 'http://localhost:10010',
+        target: 'http://localhost:10000',
         changeOrigin: true
       },
       '/s/': {
-        target: 'http://localhost:10010',
+        target: 'http://localhost:10000',
         changeOrigin: true,
         bypass: (req) => {
           const accept = req.headers?.accept || ''

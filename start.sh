@@ -118,12 +118,12 @@ fi
 
 echo ""
 print_info "端口检查..."
-if port_in_use 10010; then
-    print_err "后端端口 10010 已被占用，请先停止占用进程"
-    show_port_owner 10010
+if port_in_use 10000; then
+    print_err "后端端口 10000 已被占用，请先停止占用进程"
+    show_port_owner 10000
     exit 1
 else
-    print_ok "后端端口 10010 可用"
+    print_ok "后端端口 10000 可用"
 fi
 if port_in_use 3000; then
     print_err "前端端口 3000 已被占用，请先停止占用进程"
@@ -138,7 +138,7 @@ print_info "启动服务..."
 echo ""
 
 # 启动后端
-print_info "▶ 启动后端 (端口 10010)"
+print_info "▶ 启动后端 (端口 10000)"
 : > "$BACKEND_LOG"
 ./tyopen > "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
@@ -172,16 +172,16 @@ echo -e "${GREEN}═════════════════════
 echo -e "${GREEN}  ✓ 所有服务已启动！${NC}"
 echo ""
 echo -e "  ${BLUE}前端地址:${NC} http://localhost:3000"
-echo -e "  ${BLUE}后端地址:${NC} http://localhost:10010"
+echo -e "  ${BLUE}后端地址:${NC} http://localhost:10000"
 echo -e "  ${BLUE}管理员密码:${NC} 已从 .env 加载"
 echo ""
 echo -e "  ${BLUE}后端日志:${NC} $BACKEND_LOG"
 echo -e "  ${BLUE}前端日志:${NC} $FRONTEND_LOG"
 echo ""
-if port_in_use 10010; then
-    echo -e "  ${GREEN}后端端口:${NC} 10010 已监听"
+if port_in_use 10000; then
+    echo -e "  ${GREEN}后端端口:${NC} 10000 已监听"
 else
-    echo -e "  ${RED}后端端口:${NC} 10010 未监听（请查看日志）"
+    echo -e "  ${RED}后端端口:${NC} 10000 未监听（请查看日志）"
 fi
 if port_in_use 3000; then
     echo -e "  ${GREEN}前端端口:${NC} 3000 已监听"

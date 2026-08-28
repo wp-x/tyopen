@@ -17,11 +17,11 @@ type Config struct {
 // DefaultConfig 返回默认配置
 func DefaultConfig() *Config {
 	return &Config{
-		Port:          getEnv("TYOPEN_PORT", "10010"),
+		Port:          getEnv("TYOPEN_PORT", "10000"),
 		DataDir:       getEnv("TYOPEN_DATA_DIR", "./data"),
 		AdminPassword: getEnv("TYOPEN_ADMIN_PASSWORD", ""),
 		JWTSecret:     getEnv("TYOPEN_JWT_SECRET", ""),
-		SiteURL:       getEnv("TYOPEN_SITE_URL", "http://localhost:10010"),
+		SiteURL:       getEnv("TYOPEN_SITE_URL", "http://localhost:10000"),
 	}
 }
 

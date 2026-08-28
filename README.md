@@ -71,7 +71,7 @@ cd tyopen
 docker compose up -d --build
 ```
 
-浏览器打开 `http://服务器IP:10010`
+浏览器打开 `http://服务器IP:10000`
 
 也可以直接使用预构建镜像（无需本地构建）：
 
@@ -82,13 +82,13 @@ services:
     container_name: tyopen
     restart: unless-stopped
     ports:
-      - "10010:10010"
+      - "10000:10000"
     volumes:
       - ./data:/data
     environment:
       - TYOPEN_ADMIN_PASSWORD=改成你的密码
       - TYOPEN_JWT_SECRET=改成至少32位的随机字符串
-      - TYOPEN_SITE_URL=http://你的域名或IP:10010
+      - TYOPEN_SITE_URL=http://你的域名或IP:10000
 ```
 
 <br>
@@ -101,7 +101,7 @@ services:
 ./start.sh
 ```
 
-前端开发地址 `http://localhost:3000`，后端 `http://localhost:10010`。
+前端开发地址 `http://localhost:3000`，后端 `http://localhost:10000`。
 
 <br>
 
@@ -140,9 +140,9 @@ services:
 | --- | --- | --- |
 | `TYOPEN_ADMIN_PASSWORD` | 登录密码（至少 12 位） | 必填 |
 | `TYOPEN_JWT_SECRET` | JWT 密钥（至少 32 位随机字符） | 必填 |
-| `TYOPEN_PORT` | 端口 | 10010 |
+| `TYOPEN_PORT` | 端口 | 10000 |
 | `TYOPEN_DATA_DIR` | 数据目录（SQLite 库 `tyopen.db` 所在目录） | ./data |
-| `TYOPEN_SITE_URL` | 站点外部访问地址（用于生成分享链接） | http://localhost:10010 |
+| `TYOPEN_SITE_URL` | 站点外部访问地址（用于生成分享链接） | http://localhost:10000 |
 
 > 密码优先级：在后台「系统设置 → 修改密码」改过的密码持久化在数据库里，**优先于** `TYOPEN_ADMIN_PASSWORD`；环境变量只作为初始/兜底密码。
 
@@ -158,7 +158,7 @@ server {
     server_name pan.example.com;
 
     location / {
-        proxy_pass http://127.0.0.1:10010;
+        proxy_pass http://127.0.0.1:10000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
@@ -178,7 +178,7 @@ HTTPS 用 certbot 或者套 Cloudflare。
 **上传文件**
 
 ```bash
-curl -X POST http://localhost:10010/api/files/upload \
+curl -X POST http://localhost:10000/api/files/upload \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -F "file=@/path/to/file.txt" \
   -F "parent_id=0"
@@ -187,7 +187,7 @@ curl -X POST http://localhost:10010/api/files/upload \
 **创建目录**
 
 ```bash
-curl -X POST http://localhost:10010/api/files/mkdir \
+curl -X POST http://localhost:10000/api/files/mkdir \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "新文件夹", "parent_id": "0"}'
@@ -208,7 +208,7 @@ curl -X POST http://localhost:10010/api/files/mkdir \
 **挂载地址**
 
 ```
-http://你的服务器IP:10010/dav/
+http://你的服务器IP:10000/dav/
 ```
 
 **认证方式**
@@ -220,13 +220,13 @@ WebDAV 使用 **Basic Auth**，账号密码在后台「系统设置 → WebDAV �
 打开「此电脑」，点击「映射网络驱动器」，输入：
 
 ```
-\\你的服务器IP@10010\dav
+\\你的服务器IP@10000\dav
 ```
 
 或者用命令行：
 
 ```cmd
-net use Z: http://你的服务器IP:10010/dav/ /user:admin 你的密码
+net use Z: http://你的服务器IP:10000/dav/ /user:admin 你的密码
 ```
 
 **macOS 挂载**
@@ -234,7 +234,7 @@ net use Z: http://你的服务器IP:10010/dav/ /user:admin 你的密码
 打开 Finder，按 `Command + K`，输入：
 
 ```
-http://你的服务器IP:10010/dav/
+http://你的服务器IP:10000/dav/
 ```
 
 输入用户名 `admin` 和你设置的密码。
@@ -250,7 +250,7 @@ sudo apt install davfs2
 挂载：
 
 ```bash
-sudo mount -t davfs http://你的服务器IP:10010/dav/ /mnt/webdav
+sudo mount -t davfs http://你的服务器IP:10000/dav/ /mnt/webdav
 ```
 
 输入用户名 `admin` 和密码。
