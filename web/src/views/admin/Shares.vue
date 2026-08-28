@@ -113,7 +113,7 @@
     <el-dialog v-model="editDialogVisible" title="编辑分享" width="460px">
       <el-form :model="editForm" label-width="100px">
         <el-form-item label="短链接">
-          <el-input v-model="editForm.share_code" maxlength="64">
+          <el-input v-model="editForm.share_code">
             <template #prepend>/s/</template>
           </el-input>
         </el-form-item>
@@ -321,12 +321,6 @@ function openEditDialog(share: Share) {
 }
 
 async function updateShare() {
-  // 自定义分享码客户端预校验：空值跳过（走自动生成），规则与后端一致
-  const code = editForm.value.share_code
-  if (code && !/^[A-Za-z0-9_-]{1,64}$/.test(code)) {
-    ElMessage.error('分享码只能包含字母、数字、下划线、短横线，最多 64 字符')
-    return
-  }
   updating.value = true
   try {
     const data: any = {

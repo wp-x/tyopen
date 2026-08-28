@@ -32,13 +32,13 @@ func main() {
 
 	repos := initRepositories(db)
 	panClient := initCloud189Client(repos.settings)
-	h := initHandler(repos, panClient, cfg)
+	h := initHandler(repos, panClient, cfg.AdminPassword, cfg.JWTSecret)
 	monitorService := initMonitorService(repos, panClient, h)
 	maybeStartMonitor(repos.settings, monitorService)
 
 	r := setupRouter(routeOptions{
 		handler: h,
-	}, cfg)
+	})
 	davHandler := newWebDAVHandler(panClient, repos.settings, h.VerifyAdminPassword)
 	startHTTPServer(r, davHandler, cfg.Port)
 }

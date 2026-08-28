@@ -44,7 +44,7 @@ func initRepositories(db *repository.Database) repoBundle {
 	}
 }
 
-func initHandler(repos repoBundle, panClient *cloud189.Client, cfg *config.Config) *handler.Handler {
+func initHandler(repos repoBundle, panClient *cloud189.Client, adminPassword, jwtSecret string) *handler.Handler {
 	listCache := handler.NewListTTLCache(handler.DefaultListCacheTTL)
 	return handler.NewHandler(handler.HandlerOptions{
 		SettingsRepo:        repos.settings,
@@ -53,12 +53,10 @@ func initHandler(repos repoBundle, panClient *cloud189.Client, cfg *config.Confi
 		MonitorRepo:         repos.monitor,
 		NotificationLogRepo: repos.notification,
 		PanClient:           panClient,
-		AdminPassword:       cfg.AdminPassword,
-		JWTSecret:           cfg.JWTSecret,
-		SiteURL:             cfg.SiteURL,
-		TrustedProxies:      cfg.TrustedProxies,
+		AdminPassword:       adminPassword,
+		JWTSecret:           jwtSecret,
 		ListCache:           listCache,
-		HTTPClient:          nil, // nil → NewHandler 内部创建带超时的默认客户端
+		HTTPClient:          http.DefaultClient,
 	})
 }
 
@@ -77,15 +75,9 @@ func maybeStartMonitor(settingsRepo *repository.SettingsRepository, monitorServi
 	}
 }
 
-func setupRouter(opts routeOptions, cfg *config.Config) *gin.Engine {
+func setupRouter(opts routeOptions) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
-	// 默认不信任任何代理头（防 X-Forwarded-For 伪造绕过 IP 限流）；
-	// 反向代理部署时通过 TYOPEN_TRUSTED_PROXIES 显式配置代理网段。
-	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
-		log.Printf("TYOPEN_TRUSTED_PROXIES 配置无效: %v（按不信任任何代理处理）", err)
-		_ = r.SetTrustedProxies(nil)
-	}
 	r.Use(middleware.CORSMiddleware())
 	r.Use(middleware.SecurityHeadersMiddleware())
 	registerRoutes(r, opts)

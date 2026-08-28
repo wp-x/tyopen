@@ -344,24 +344,12 @@
               <el-input v-model="webdavForm.webdav_username" placeholder="admin" />
             </el-form-item>
             <el-form-item label="密码">
-              <div style="display: flex; gap: 8px; width: 100%">
-                <el-input
-                  v-model="webdavForm.webdav_password"
-                  type="password"
-                  show-password
-                  style="flex: 1"
-                  :placeholder="webdavPasswordSet ? '已设置，留空则不修改' : '留空则沿用后台管理员密码'"
-                />
-                <el-button
-                  v-if="webdavPasswordSet"
-                  size="small"
-                  type="danger"
-                  plain
-                  @click="clearWebdavPassword"
-                >
-                  清除密码
-                </el-button>
-              </div>
+              <el-input
+                v-model="webdavForm.webdav_password"
+                type="password"
+                show-password
+                :placeholder="webdavPasswordSet ? '已设置，留空则不修改' : '留空则沿用后台管理员密码'"
+              />
             </el-form-item>
             <el-form-item label="只读模式">
               <el-switch v-model="webdavForm.webdav_readonly" />
@@ -582,8 +570,6 @@ const webdavForm = ref({
   webdav_readonly: false
 })
 const webdavPasswordSet = ref(false)
-// 后端约定的「清除 WebDAV 独立密码」哨兵值（对应后端常量 webdavPasswordClearSentinel = "__CLEAR__"）
-const WEBDAV_PASSWORD_CLEAR_SENTINEL = '__CLEAR__'
 
 // 监控相关
 const monitorForm = ref({
@@ -885,21 +871,6 @@ async function saveWebdavSettings() {
     loadSettings()
   } catch (error) {
     // 错误已处理
-  } finally {
-    saving.value = false
-  }
-}
-
-// 清除 WebDAV 独立密码：发送哨兵值，后端清除后回退为沿用管理员密码
-async function clearWebdavPassword() {
-  saving.value = true
-  try {
-    await settingsApi.update({ webdav_password: WEBDAV_PASSWORD_CLEAR_SENTINEL })
-    ElMessage.success('WebDAV 独立密码已清除，将回退为沿用管理员密码')
-    webdavForm.value.webdav_password = ''
-    loadSettings()
-  } catch (error) {
-    // 错误已处理（由请求拦截器统一提示）
   } finally {
     saving.value = false
   }

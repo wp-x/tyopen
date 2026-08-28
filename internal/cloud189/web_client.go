@@ -129,9 +129,7 @@ func checkWebBusinessError(body []byte) error {
 	return nil
 }
 
-// webNoCache noCache=0.xxx 缓存破坏参数。仅用于破坏 HTTP 缓存，
-// 不参与任何密钥/签名材料生成，故沿用 math/rand；
-// 涉及密钥的随机性（randomPattern）统一走 crypto/rand。
+// webNoCache noCache=0.xxx 缓存破坏参数
 func webNoCache() string {
 	return fmt.Sprintf("0.%017d", rand.Int63n(1e17))
 }
@@ -239,49 +237,21 @@ func rsaEncryptBase64(pubKeyBase64 string, origData []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
-// randHexNibble 从 crypto/rand 读取一个随机 nibble（0-15）。
-// randomPattern 用于生成上传 AES key 与 requestID，必须使用密码学
-// 安全随机源，不能用 math/rand。
-func randHexNibble() (byte, error) {
-	var b [1]byte
-	if _, err := cryptorand.Read(b[:]); err != nil {
-		return 0, err
-	}
-	return b[0] & 0x0f, nil
-}
-
-// randomPattern 按 OpenList Random 实现：x→随机十六进制位，y→(3&t)|8。
-// 随机性来自 crypto/rand（见 randHexNibble）。
+// randomPattern 按 OpenList Random 实现：x→随机十六进制位，y→(3&t)|8
 func randomPattern(pattern string) string {
 	var sb strings.Builder
 	for i := 0; i < len(pattern); i++ {
 		ch := pattern[i]
 		switch ch {
-		case 'x', 'y':
-			t, err := randHexNibble()
-			if err != nil {
-				// crypto/rand 不可用（正常不会发生）：回退为 0，仅保证输出格式稳定
-				t = 0
-			}
-			if ch == 'x' {
-				sb.WriteString(strconv.FormatInt(int64(t), 16))
-			} else {
-				sb.WriteString(strconv.FormatInt(int64(3&t|8), 16))
-			}
+		case 'x':
+			sb.WriteString(strconv.FormatInt(int64(16*rand.Float64()), 16))
+		case 'y':
+			sb.WriteString(strconv.FormatInt(3&int64(16*rand.Float64())|8, 16))
 		default:
 			sb.WriteByte(ch)
 		}
 	}
 	return sb.String()
-}
-
-// randKeyLength 返回 16~31 的随机长度（crypto/rand），用于 AES key 长度随机化。
-func randKeyLength() int {
-	t, err := randHexNibble()
-	if err != nil {
-		return 16
-	}
-	return 16 + int(t%16)
 }
 
 // encodeWebForm 网页版上传 params 原文：k=v 用 & 连接（key 排序保证确定性，

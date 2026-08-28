@@ -49,8 +49,6 @@ type Handler struct {
 	panClient           *cloud189.Client
 	adminPassword       string
 	jwtSecret           string
-	siteURL             string
-	proxyTrust          *proxyTrust
 	monitorService      MonitorServiceInterface
 	listCache           ListCache
 	httpClient          HTTPDoer
@@ -77,12 +75,8 @@ type HandlerOptions struct {
 	PanClient           *cloud189.Client
 	AdminPassword       string
 	JWTSecret           string
-	// SiteURL 显式站点 URL（TYOPEN_SITE_URL）；为空时按请求动态推导（仅可信代理转发头生效）
-	SiteURL string
-	// TrustedProxies 可信反向代理 IP/CIDR（TYOPEN_TRUSTED_PROXIES）；为空=不信任任何代理头
-	TrustedProxies []string
-	ListCache      ListCache
-	HTTPClient     HTTPDoer
+	ListCache           ListCache
+	HTTPClient          HTTPDoer
 }
 
 // NewHandler 创建Handler
@@ -90,11 +84,8 @@ func NewHandler(opts HandlerOptions) *Handler {
 	if opts.ListCache == nil {
 		panic("list cache is required")
 	}
-	// 文件内容代理需要超时保护：默认/缺省客户端替换为带 30s 超时的实例，
-	// 避免上游 CDN 挂起时请求长期占用连接；测试可注入自定义 HTTPDoer。
-	hc := opts.HTTPClient
-	if hc == nil || hc == http.DefaultClient {
-		hc = &http.Client{Timeout: 30 * time.Second}
+	if opts.HTTPClient == nil {
+		panic("http client is required")
 	}
 	return &Handler{
 		settingsRepo:        opts.SettingsRepo,
@@ -105,10 +96,8 @@ func NewHandler(opts HandlerOptions) *Handler {
 		panClient:           opts.PanClient,
 		adminPassword:       opts.AdminPassword,
 		jwtSecret:           opts.JWTSecret,
-		siteURL:             opts.SiteURL,
-		proxyTrust:          newProxyTrust(opts.TrustedProxies),
 		listCache:           opts.ListCache,
-		httpClient:          hc,
+		httpClient:          opts.HTTPClient,
 		directCache:         NewDirectURLCache(DefaultDirectURLCacheTTL),
 		directLimiter:       newDirectRateLimiter(),
 		loginLimiter:        newLoginFailureLimiter(),
@@ -153,7 +142,7 @@ func (h *Handler) SetPanClient(client *cloud189.Client) {
 func (h *Handler) GetSiteConfig(c *gin.Context) {
 	settings, err := h.settingsRepo.Get()
 	if err != nil {
-		baseURL := h.requestBaseURL(c)
+		baseURL := requestBaseURL(c)
 		// 返回默认值
 		c.JSON(http.StatusOK, model.APIResponse{
 			Code:    0,
@@ -175,7 +164,7 @@ func (h *Handler) GetSiteConfig(c *gin.Context) {
 		return
 	}
 
-	baseURL := h.requestBaseURL(c)
+	baseURL := requestBaseURL(c)
 	c.JSON(http.StatusOK, model.APIResponse{
 		Code:    0,
 		Message: "success",
@@ -602,26 +591,6 @@ func generateShareCode() string {
 	return hex.EncodeToString(bytes)
 }
 
-// validateShareCode 校验自定义分享码：URL 安全字符集 + 长度上限（空串=自动生成，跳过）
-func validateShareCode(code string) error {
-	if code == "" {
-		return nil
-	}
-	if len(code) > 64 {
-		return fmt.Errorf("分享码过长（最多 64 字符）")
-	}
-	for _, r := range code {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
-			continue
-		}
-		return fmt.Errorf("分享码只能包含字母、数字、下划线、短横线")
-	}
-	return nil
-}
-
-// errInvalidExpireAt 过期时间格式错误提示（多处共用）
-const errInvalidExpireAt = "过期时间格式错误，应为 ISO8601（如 2026-12-31T23:59:59+08:00）"
-
 func directShareEnabled(targetType string, requested bool) bool {
 	return targetType == "file" && requested
 }
@@ -642,13 +611,6 @@ func (h *Handler) CreateShare(c *gin.Context) {
 	if shareCode == "" {
 		shareCode = generateShareCode()
 	}
-	if err := validateShareCode(shareCode); err != nil {
-		c.JSON(http.StatusBadRequest, model.APIResponse{
-			Code:    400,
-			Message: err.Error(),
-		})
-		return
-	}
 
 	// 检查分享码是否已存在
 	exists, _ := h.shareRepo.CodeExists(shareCode)
@@ -660,18 +622,13 @@ func (h *Handler) CreateShare(c *gin.Context) {
 		return
 	}
 
-	// 解析过期时间（格式错误直接 400，避免用户以为设置了过期其实没有）
+	// 解析过期时间
 	var expireAt *time.Time
 	if req.ExpireAt != "" {
 		t, err := time.Parse(time.RFC3339, req.ExpireAt)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, model.APIResponse{
-				Code:    400,
-				Message: errInvalidExpireAt,
-			})
-			return
+		if err == nil {
+			expireAt = &t
 		}
-		expireAt = &t
 	}
 
 	isDirect := directShareEnabled(req.TargetType, req.IsDirect)
@@ -767,13 +724,6 @@ func (h *Handler) UpdateShare(c *gin.Context) {
 	}
 
 	if req.ShareCode != "" && req.ShareCode != share.ShareCode {
-		if err := validateShareCode(req.ShareCode); err != nil {
-			c.JSON(http.StatusBadRequest, model.APIResponse{
-				Code:    400,
-				Message: err.Error(),
-			})
-			return
-		}
 		exists, _ := h.shareRepo.CodeExists(req.ShareCode)
 		if exists {
 			c.JSON(http.StatusBadRequest, model.APIResponse{
@@ -804,14 +754,9 @@ func (h *Handler) UpdateShare(c *gin.Context) {
 
 	if req.ExpireAt != "" {
 		t, err := time.Parse(time.RFC3339, req.ExpireAt)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, model.APIResponse{
-				Code:    400,
-				Message: errInvalidExpireAt,
-			})
-			return
+		if err == nil {
+			share.ExpireAt = &t
 		}
-		share.ExpireAt = &t
 	} else {
 		share.ExpireAt = nil
 	}
@@ -1278,14 +1223,9 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 	if v, ok := raw["webdav_username"].(string); ok && v != "" {
 		settings.WebdavUsername = v
 	}
-	// webdav_password：掩码=保持原值，空字符串=保持原值（兼容旧前端），
-	// 哨兵 "__CLEAR__" = 显式清除独立密码（回退到沿用管理员密码）
-	if v, ok := raw["webdav_password"].(string); ok && !containsMask(v) {
-		if v == webdavPasswordClearSentinel {
-			settings.WebdavPassword = ""
-		} else if v != "" {
-			settings.WebdavPassword = v
-		}
+	// 空字符串表示保持原密码，仅在传入非空且非掩码时更新
+	if v, ok := raw["webdav_password"].(string); ok && v != "" && !containsMask(v) {
+		settings.WebdavPassword = v
 	}
 	if v, ok := raw["webdav_readonly"].(bool); ok {
 		settings.WebdavReadonly = v
@@ -1674,9 +1614,6 @@ func containsMask(s string) bool {
 	return strings.Contains(s, "****")
 }
 
-// webdavPasswordClearSentinel 前端清除 WebDAV 独立密码的哨兵值
-const webdavPasswordClearSentinel = "__CLEAR__"
-
 // hashPassword bcrypt加密密码
 func hashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -1718,17 +1655,10 @@ func (h *Handler) BatchCreateShare(c *gin.Context) {
 	}
 
 	results := make([]*model.Share, 0, len(req.Items))
-	for i, item := range req.Items {
+	for _, item := range req.Items {
 		shareCode := item.ShareCode
 		if shareCode == "" {
 			shareCode = generateShareCode()
-		}
-		if err := validateShareCode(shareCode); err != nil {
-			c.JSON(http.StatusBadRequest, model.APIResponse{
-				Code:    400,
-				Message: fmt.Sprintf("第 %d 项: %s", i+1, err.Error()),
-			})
-			return
 		}
 
 		// 检查分享码
@@ -1740,14 +1670,9 @@ func (h *Handler) BatchCreateShare(c *gin.Context) {
 		var expireAt *time.Time
 		if item.ExpireAt != "" {
 			t, err := time.Parse(time.RFC3339, item.ExpireAt)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, model.APIResponse{
-					Code:    400,
-					Message: fmt.Sprintf("第 %d 项: %s", i+1, errInvalidExpireAt),
-				})
-				return
+			if err == nil {
+				expireAt = &t
 			}
-			expireAt = &t
 		}
 
 		share := &model.Share{
@@ -1889,8 +1814,8 @@ func (h *Handler) GetShareQRCode(c *gin.Context) {
 		return
 	}
 
-	// 站点 URL：优先显式配置，否则仅采信可信代理转发头
-	siteURL := h.requestBaseURL(c)
+	// 站点 URL：复用 requestBaseURL（正确处理反代头），不再用 SiteLogo 占位
+	siteURL := requestBaseURL(c)
 
 	shareURL := fmt.Sprintf("%s/s/%s", siteURL, share.ShareCode)
 
