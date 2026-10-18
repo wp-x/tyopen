@@ -1401,6 +1401,8 @@ func (h *Handler) reinitPanClient(settings *model.Settings) {
 		fmt.Printf("重新初始化云盘客户端失败: %v\n", err)
 		return
 	}
+	// 启动后台保活：PC 模式主动续期 session，Cookie 模式做失效探测
+	client.StartKeepAlive(0)
 	h.swapPanClient(client)
 }
 
@@ -1413,6 +1415,9 @@ func (h *Handler) setupTokenCallback(client *cloud189.Client) {
 
 // swapPanClient 替换当前云盘客户端并同步监控服务
 func (h *Handler) swapPanClient(client *cloud189.Client) {
+	if h.panClient != nil {
+		h.panClient.StopKeepAlive()
+	}
 	h.panClient = client
 	h.listCache.InvalidateAll()
 	if h.monitorService != nil {

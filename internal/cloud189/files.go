@@ -39,6 +39,32 @@ type listFolderItem struct {
 	CreateDate string          `json:"createDate"`
 }
 
+// ListFilesRawJSON 直接以原始 folderId 请求 PC 协议列目录，返回原始响应体。
+// 不做根目录映射（""/"0" 原样传给上游），用于访问天翼云特殊目录：
+// 个人云根目录列表中的「同步盘」条目 id=0，是天翼云的特殊标记，
+// 上游对 folderId=0 的真实行为由此方法实测。
+func (c *Client) ListFilesRawJSON(ctx context.Context, folderID string) (string, error) {
+	if err := c.requireInitialized(); err != nil {
+		return "", err
+	}
+	body, err := c.request(ctx, http.MethodGet, apiURL+"/listFiles.action",
+		map[string]string{
+			"folderId":   folderID,
+			"fileType":   "0",
+			"mediaAttr":  "0",
+			"iconOption": "5",
+			"pageNum":    "1",
+			"pageSize":   "50",
+			"recursive":  "0",
+			"orderBy":    "filename",
+			"descending": "false",
+		}, nil, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
 // ListFiles 获取文件列表（个人云）。dirID 为 "0" 或 "" 时视为根目录（-11）。
 func (c *Client) ListFiles(dirID string, page, pageSize int) ([]*model.FileInfo, error) {
 	return c.ListFilesContext(context.Background(), dirID, page, pageSize)
@@ -52,12 +78,24 @@ func (c *Client) ListFilesContext(ctx context.Context, dirID string, page, pageS
 	return c.activeBackend().listFiles(ctx, dirID, page, pageSize)
 }
 
+// syncDiskID 天翼云列表中「同步盘」条目的特殊标记 id（folderId=0 即同步盘根）
+const syncDiskID = "0"
+
+// rewriteSyncID 把天翼云返回的同步盘特殊 id（0）改写为内部虚拟 ID，
+// 避免与本服务 "0"=根目录 的约定冲突；父 ID 同理。
+func rewriteSyncID(id string) string {
+	if id == syncDiskID {
+		return syncDiskVirtualID
+	}
+	return id
+}
+
 // fileInfosFromList 列目录响应 → FileInfo 列表（目录在前），两种模式共用
 func fileInfosFromList(resp *listFilesResp, dirID string) []*model.FileInfo {
 	files := make([]*model.FileInfo, 0, len(resp.FileListAO.FolderList)+len(resp.FileListAO.FileList))
 	for _, f := range resp.FileListAO.FolderList {
-		id := rawJSONString(f.ID)
-		parentID := rawJSONString(f.ParentID)
+		id := rewriteSyncID(rawJSONString(f.ID))
+		parentID := rewriteSyncID(rawJSONString(f.ParentID))
 		if parentID == "" {
 			parentID = dirID
 		}
@@ -72,7 +110,7 @@ func fileInfosFromList(resp *listFilesResp, dirID string) []*model.FileInfo {
 		})
 	}
 	for _, f := range resp.FileListAO.FileList {
-		id := rawJSONString(f.ID)
+		id := rewriteSyncID(rawJSONString(f.ID))
 		files = append(files, &model.FileInfo{
 			ID:       id,
 			FID:      id,

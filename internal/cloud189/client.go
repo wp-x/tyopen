@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -30,6 +31,13 @@ const (
 	channelID = "web_cloud.189.cn"
 
 	defaultRootFolderID = "-11" // 个人云根目录 ID
+
+	// syncDiskVirtualID 同步盘虚拟 ID。
+	// 天翼云在个人云根目录列表中返回「同步盘」条目 id=0（特殊标记，非真实目录 ID），
+	// 上游对 folderId=0 的请求会返回同步盘内容（已实测）。
+	// 但本服务内部约定 "0"=根目录（前端/WebDAV 多处依赖），故列表中把该条目
+	// 改写为虚拟 ID "-101"，请求侧在 normalizeDirID 中翻译回 "0" 发给上游。
+	syncDiskVirtualID = "-101"
 )
 
 // errSessionInvalid 表示会话（sessionKey）失效，需要刷新 session 后重试。
@@ -52,6 +60,10 @@ type Client struct {
 	sessionSecret string
 	initialized   bool
 	onTokenUpdate func(refreshToken, accessToken string)
+
+	// keepAliveCancel 终止后台保活 goroutine；keepAliveOnce 保证只启动一次
+	keepAliveCancel context.CancelFunc
+	keepAliveOnce   sync.Once
 
 	// sessionMu 串行化 session/token 刷新与完整登录，防止并发重复刷新。
 	sessionMu sync.Mutex
@@ -186,8 +198,11 @@ func (c *Client) getRootFolderID() string {
 	return c.rootFolderID
 }
 
-// normalizeDirID 把 ""/"0" 映射为根目录 ID
+// normalizeDirID 把 ""/"0" 映射为根目录 ID；同步盘虚拟 ID 翻译回上游的 0
 func (c *Client) normalizeDirID(dirID string) string {
+	if dirID == syncDiskVirtualID {
+		return "0" // 上游 folderId=0 = 同步盘根
+	}
 	if dirID == "" || dirID == "0" {
 		return c.getRootFolderID()
 	}
@@ -272,4 +287,84 @@ func (c *Client) requireInitialized() error {
 		return fmt.Errorf("云盘客户端未初始化")
 	}
 	return nil
+}
+
+// StartKeepAlive 启动后台保活：PC 协议模式定期调用 keepUserSession.action 心跳维持
+// 会话（对齐 OpenList 189pc 的 keepAlive），心跳失败再立即 refreshSession；Cookie 模式
+// 无服务端续期能力，改为轻量有效性探测并在失效时告警。重复调用只生效一次。
+// 仅在常驻客户端创建点（initCloud189Client / reinitPanClient）显式调用，
+// 临时校验客户端不应启动以免留下孤儿 goroutine。
+func (c *Client) StartKeepAlive(interval time.Duration) {
+	c.keepAliveOnce.Do(func() {
+		if interval <= 0 {
+			interval = 5 * time.Minute
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		c.keepAliveCancel = cancel
+		go func() {
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					c.keepAliveTick(ctx)
+				}
+			}
+		}()
+	})
+}
+
+// keepAliveTick 单次保活动作（对齐 OpenList 189pc：先 keepUserSession 心跳，
+// 心跳失败再立即 refreshSession；request() 内部另含 3 次刷新重试作为兜底）。
+func (c *Client) keepAliveTick(ctx context.Context) {
+	if !c.IsInitialized() {
+		return
+	}
+	if c.getCookie() != "" {
+		// Cookie 模式无服务端续期，仅探测失效并告警，避免静默失败
+		if _, err := c.web.listFiles(ctx, defaultRootFolderID, 1, 1); err != nil {
+			if errors.Is(err, errCookieInvalid) {
+				log.Printf("[cloud189] 网页版 Cookie 已失效，请在管理后台重新填写 Cookie 以恢复访问")
+			}
+		}
+		return
+	}
+	// PC 协议模式：调用 keepUserSession.action 维持会话活跃（轻量心跳，不换 sessionKey）。
+	// 失败（多为会话失效）立即尝试刷新，而非等下一周期——这正是 OpenList 不掉线的关键。
+	if err := c.keepUserSession(ctx); err != nil {
+		if errors.Is(err, errNeedSecondAuth) {
+			// 短信二次校验无法自动完成，停止保活避免持续刷错误日志
+			log.Printf("[cloud189] 保活刷新需要短信二次校验，无法自动续期，已停止保活（请关闭设备锁或重新配置）")
+			c.StopKeepAlive()
+			return
+		}
+		log.Printf("[cloud189] 会话心跳失败，尝试刷新会话: %v", err)
+		if refreshErr := c.refreshSession(ctx); refreshErr != nil {
+			log.Printf("[cloud189] 保活刷新失败，将在下次周期重试: %v", refreshErr)
+		}
+	}
+}
+
+// keepUserSession 调用 keepUserSession.action 维持会话活跃（对齐 OpenList 189pc 的
+// keepAlive）。直接走签名请求模板（不进 request() 重试循环，保活本身是兜底），
+// 仅识别会话失效信号以触发上层刷新。
+func (c *Client) keepUserSession(ctx context.Context) error {
+	body, err := c.doSignedRequest(ctx, http.MethodGet, apiURL+"/keepUserSession.action", nil, nil, nil)
+	if err != nil {
+		// doSignedRequest 已把 401/403、缺失 session 转成 errSessionInvalid
+		return err
+	}
+	if e := isSessionExpiredBody(body); e != nil {
+		return e
+	}
+	return nil
+}
+
+// StopKeepAlive 停止后台保活（客户端被替换时调用，避免孤儿 goroutine）。
+func (c *Client) StopKeepAlive() {
+	if c.keepAliveCancel != nil {
+		c.keepAliveCancel()
+	}
 }

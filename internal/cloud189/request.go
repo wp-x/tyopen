@@ -101,6 +101,10 @@ func (c *Client) doSignedRequest(ctx context.Context, method, fullURL string, qu
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
+		// 401/403 多数表示会话失效，交给刷新重试逻辑处理，避免被动等过期而掉线
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return nil, errSessionInvalid
+		}
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(body), 200))
 	}
 	if err := checkBusinessError(body); err != nil {
@@ -109,14 +113,43 @@ func (c *Client) doSignedRequest(ctx context.Context, method, fullURL string, qu
 	return body, nil
 }
 
+// sessionExpiredSignals 已知的会话/令牌失效信号（大小写不敏感匹配）。
+// 覆盖 Cloud189 多种过期表述，避免漏判导致被动等过期而掉线
+// （对齐 OpenList 189pc 驱动对 InvalidSessionKey 的宽匹配处理）。
+var sessionExpiredSignals = []string{
+	"usersessionbo is null",
+	"invalidsessionkey",
+	"sessionkey is invalid",
+	"sessionkeyexpire",
+	"sessionexpired",
+	"userinvalidsessionkey",
+	"userinvalidopentoken",
+	"登录已过期",
+	"请重新登录",
+	"relogin",
+	"loginexpired",
+	"token expired",
+	"token is invalid",
+}
+
+// isSessionExpiredBody 判断响应是否表示会话/令牌失效，命中返回对应哨兵错误。
+func isSessionExpiredBody(body []byte) error {
+	s := strings.ToLower(string(body))
+	for _, sig := range sessionExpiredSignals {
+		if strings.Contains(s, sig) {
+			if strings.Contains(s, "opentoken") {
+				return errInvalidOpenToken
+			}
+			return errSessionInvalid
+		}
+	}
+	return nil
+}
+
 // checkBusinessError 检查响应中的 session/token 失效标记与 res_code 业务错误
 func checkBusinessError(body []byte) error {
-	s := string(body)
-	if strings.Contains(s, "userSessionBO is null") || strings.Contains(s, "InvalidSessionKey") {
-		return errSessionInvalid
-	}
-	if strings.Contains(s, "UserInvalidOpenToken") {
-		return errInvalidOpenToken
+	if err := isSessionExpiredBody(body); err != nil {
+		return err
 	}
 
 	var head struct {

@@ -91,6 +91,9 @@ func initCloud189Client(settingsRepo *repository.SettingsRepository) *cloud189.C
 		return client
 	}
 
+	// 启动后台保活：PC 模式主动续期 session，Cookie 模式做失效探测
+	client.StartKeepAlive(0)
+
 	log.Println("云盘客户端初始化成功")
 	return client
 }
