@@ -34,6 +34,16 @@
               <template v-if="passwordSet">密码已设置；</template>若登录触发电信验证码，请先在官方客户端登录一次后再试
             </div>
           </el-form-item>
+          <el-form-item label="根文件夹ID">
+            <el-input
+              v-model="cloudForm.root_folder_id"
+              placeholder="留空=个人云(-11)；填同步盘/子目录的 folderId"
+            />
+            <div class="form-tip">
+              挂载到指定目录：浏览器打开 cloud.189.cn → 进入「同步盘」或目标文件夹 → 地址栏 URL 中 <code>folder/</code> 后的数字即 folderId（如 <code>71398114617385472</code>），填入即可挂载该目录。<br />
+              同步盘 / 家庭云是独立根目录，必须用对应 folderId 才能访问，无法从个人云(-11)下看到。
+            </div>
+          </el-form-item>
           <el-form-item label="Cookie 登录">
             <el-collapse class="cookie-collapse">
               <el-collapse-item name="cookie">

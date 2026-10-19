@@ -26,8 +26,8 @@ import (
 )
 
 // errCookieInvalid 表示网页版 Cookie 失效（errorCode=InvalidSessionKey）。
-// Cookie 模式无自动续期，直接返回明确错误。
-var errCookieInvalid = errors.New("Cookie 已失效，请重新获取")
+// Cookie 模式无自动续期，返回明确可操作的错误，便于管理后台提示重新填写。
+var errCookieInvalid = errors.New("网页版 Cookie 已失效（天翼云盘会话过期），请在管理后台重新填写 Cookie 以恢复访问")
 
 // webBackend 网页版 API 模式（cloud.189.cn，Cookie 会话，小写 HEX）
 type webBackend struct {
